@@ -1,69 +1,69 @@
-// TEMS — API Module (CORS-safe)
+// =============================================
+// TEMS — API Module
+// ALL requests sent as GET to avoid CORS
+// =============================================
+
 const API = (() => {
   const BASE = () => localStorage.getItem('tems_api_url') || TEMS_CONFIG.APPS_SCRIPT_URL;
   const getToken = () => localStorage.getItem(TEMS_CONFIG.TOKEN_KEY);
 
-  // All write calls use form-encoded POST — required for Google Apps Script CORS
-  const post = async (action, payload = {}) => {
-    const data = { action, ...payload };
-    const token = getToken();
-    if (token) data.token = token;
-    const res = await fetch(BASE(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ payload: JSON.stringify(data) })
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    return res.json();
-  };
-
-  const get = async (action, params = {}) => {
+  // Every single request — reads AND writes — goes as a GET with data in the URL
+  const call = async (action, params = {}) => {
     const token = getToken();
     const allParams = { action, ...params };
     if (token) allParams.token = token;
-    const res = await fetch(BASE() + '?' + new URLSearchParams(allParams).toString());
+
+    // Encode any objects/arrays as JSON strings
+    Object.keys(allParams).forEach(k => {
+      if (typeof allParams[k] === 'object' && allParams[k] !== null) {
+        allParams[k] = JSON.stringify(allParams[k]);
+      }
+    });
+
+    const url = BASE() + '?' + new URLSearchParams(allParams).toString();
+    const res = await fetch(url);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return res.json();
   };
 
-  const callWithFallback = async (action, payload, description) => {
-    try { return await post(action, payload); }
-    catch (err) {
-      if (typeof OfflineSync !== 'undefined') OfflineSync.enqueue({ action, payload, description });
-      return { success: true, offline: true, queued: true };
-    }
-  };
-
   return {
-    get, post, callWithFallback,
-    login:             (u, p)    => post('login', { username: u, password: p }),
-    getDashboard:      ()        => get('getDashboard'),
-    getProducts:       (p)       => get('getProducts', p || {}),
-    createProduct:     (d)       => post('createProduct', d),
-    updateProduct:     (d)       => post('updateProduct', d),
-    deleteProduct:     (id)      => post('deleteProduct', { id }),
-    getSuppliers:      (p)       => get('getSuppliers', p || {}),
-    createSupplier:    (d)       => post('createSupplier', d),
-    updateSupplier:    (d)       => post('updateSupplier', d),
-    deleteSupplier:    (id)      => post('deleteSupplier', { id }),
-    getPurchases:      (p)       => get('getPurchases', p || {}),
-    createPurchase:    (d)       => post('createPurchase', d),
-    deletePurchase:    (id)      => post('deletePurchase', { id }),
-    getShipments:      (p)       => get('getShipments', p || {}),
-    createShipment:    (d)       => post('createShipment', d),
-    updateShipment:    (d)       => post('updateShipment', d),
-    getSales:          (p)       => get('getSales', p || {}),
-    createSale:        (d)       => post('createSale', d),
-    deleteSale:        (id)      => post('deleteSale', { id }),
-    getInventory:      (p)       => get('getInventory', p || {}),
-    adjustStock:       (d)       => post('adjustStock', d),
-    getUsers:          ()        => get('getUsers'),
-    createUser:        (d)       => post('createUser', d),
-    updateUser:        (d)       => post('updateUser', d),
-    deactivateUser:    (id)      => post('deactivateUser', { id }),
-    getSalesReport:    (p)       => get('getSalesReport', p || {}),
-    getInventoryReport:(p)       => get('getInventoryReport', p || {}),
-    getSupplierReport: (p)       => get('getSupplierReport', p || {}),
-    getAuditLogs:      (p)       => get('getAuditLogs', p || {})
+    login:              (u, p)  => call('login',             { username: u, password: p }),
+    getDashboard:       ()      => call('getDashboard'),
+    getProducts:        ()      => call('getProducts'),
+    createProduct:      (d)     => call('createProduct',     d),
+    updateProduct:      (d)     => call('updateProduct',     d),
+    deleteProduct:      (id)    => call('deleteProduct',     { id }),
+    getSuppliers:       ()      => call('getSuppliers'),
+    createSupplier:     (d)     => call('createSupplier',    d),
+    updateSupplier:     (d)     => call('updateSupplier',    d),
+    deleteSupplier:     (id)    => call('deleteSupplier',    { id }),
+    getPurchases:       ()      => call('getPurchases'),
+    createPurchase:     (d)     => call('createPurchase',    d),
+    deletePurchase:     (id)    => call('deletePurchase',    { id }),
+    getShipments:       ()      => call('getShipments'),
+    createShipment:     (d)     => call('createShipment',    d),
+    updateShipment:     (d)     => call('updateShipment',    d),
+    getSales:           ()      => call('getSales'),
+    createSale:         (d)     => call('createSale',        d),
+    deleteSale:         (id)    => call('deleteSale',        { id }),
+    getInventory:       ()      => call('getInventory'),
+    adjustStock:        (d)     => call('adjustStock',       d),
+    getUsers:           ()      => call('getUsers'),
+    createUser:         (d)     => call('createUser',        d),
+    updateUser:         (d)     => call('updateUser',        d),
+    deactivateUser:     (id)    => call('deactivateUser',    { id }),
+    getSalesReport:     (p)     => call('getSalesReport',    p || {}),
+    getInventoryReport: (p)     => call('getInventoryReport',p || {}),
+    getSupplierReport:  (p)     => call('getSupplierReport', p || {}),
+    getAuditLogs:       (p)     => call('getAuditLogs',      p || {}),
+
+    // Offline fallback wrapper
+    callWithFallback: async (action, payload, description) => {
+      try { return await call(action, payload); }
+      catch (err) {
+        if (typeof OfflineSync !== 'undefined') OfflineSync.enqueue({ action, payload, description });
+        return { success: true, offline: true, queued: true };
+      }
+    }
   };
 })();
