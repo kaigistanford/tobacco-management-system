@@ -9,147 +9,121 @@
   <meta name="theme-color" content="#0d1117">
   <link rel="icon" href="assets/icons/icon-192.png">
 </head>
-<body>
-<div class="login-page">
-  <div class="login-bg-decor"></div>
+<body class="login-page">
 
+<div class="login-container">
   <div class="login-card">
+
     <div class="login-logo">
-      <div class="login-logo-icon">🌿</div>
-      <div class="login-logo-title">TEMS</div>
-      <div class="login-logo-sub">Tobacco Enterprise Management System</div>
+      <img src="assets/icons/icon-192.png" alt="TEMS" width="72" height="72"
+           onerror="this.style.display='none'">
+      <div class="login-app-name">TEMS</div>
+      <div class="login-app-sub">Tobacco Enterprise Management System</div>
     </div>
 
-    <div class="login-form">
-      <div>
-        <div class="login-title">Welcome back</div>
-        <div class="login-sub">Sign in to access your workspace</div>
-      </div>
+    <h2 class="login-title">Welcome back</h2>
+    <p class="login-subtitle">Sign in to access your workspace</p>
 
-      <div id="login-error" class="login-error">
-        ⚠️ <span id="login-error-msg">Invalid username or password.</span>
-      </div>
+    <div id="error-box" class="alert alert-danger" style="display:none"></div>
 
-      <div class="form-group">
-        <label class="form-label" for="username">Username</label>
-        <input class="form-input" type="text" id="username" placeholder="e.g. admin" autocomplete="username">
-      </div>
-
-      <div class="form-group">
-        <label class="form-label" for="password">Password</label>
-        <input class="form-input" type="password" id="password" placeholder="••••••••" autocomplete="current-password">
-      </div>
-
-      <button class="btn btn-primary login-btn" id="login-btn">
-        <span id="login-btn-text">Sign In</span>
-        <div id="login-spinner" class="spinner" style="display:none;width:16px;height:16px;border-width:2px"></div>
-      </button>
+    <div class="form-group">
+      <label class="form-label">Username</label>
+      <input class="form-input" type="text" id="username"
+             placeholder="Enter your username" autocomplete="username">
     </div>
 
-    <div style="margin-top:24px;text-align:center;font-size:0.75rem;color:var(--text-muted)">
-      TEMS v1.0 &nbsp;·&nbsp; Tobacco Enterprise Management
+    <div class="form-group">
+      <label class="form-label">Password</label>
+      <div style="position:relative">
+        <input class="form-input" type="password" id="password"
+               placeholder="Enter your password" autocomplete="current-password">
+        <button type="button" id="toggle-pw"
+          style="position:absolute;right:12px;top:50%;transform:translateY(-50%);
+                 background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:1rem">
+          👁
+        </button>
+      </div>
     </div>
+
+    <button class="btn btn-primary btn-block" id="login-btn" onclick="doLogin()">
+      Sign In
+    </button>
+
+    <div style="margin-top:16px;font-size:0.78rem;color:var(--text-muted);text-align:center">
+      Default: admin / Admin@1234
+    </div>
+
   </div>
 </div>
 
-<!-- Toast -->
-<div class="toast-container" id="toast-container"></div>
-
 <script src="js/config.js"></script>
 <script>
-// Minimal offline sync stub for login page
-const OfflineSync = {
-  getCachedCredentials: () => {
-    try { return JSON.parse(localStorage.getItem('tems_cred_cache') || '{}'); } catch { return {}; }
-  }
-};
-const hashPassword = (pwd) => {
-  let hash = 0;
-  for (let i = 0; i < pwd.length; i++) {
-    hash = ((hash << 5) - hash) + pwd.charCodeAt(i);
-    hash |= 0;
-  }
-  return hash.toString(36);
-};
+// Already logged in? Go to dashboard
+try {
+  const tok  = localStorage.getItem(TEMS_CONFIG.TOKEN_KEY);
+  const user = JSON.parse(localStorage.getItem(TEMS_CONFIG.USER_KEY) || 'null');
+  if (tok && user) window.location.href = 'dashboard.html';
+} catch(e) {}
 
-// Redirect if already logged in
-const token = localStorage.getItem(TEMS_CONFIG.TOKEN_KEY);
-const user  = (() => { try { return JSON.parse(localStorage.getItem(TEMS_CONFIG.USER_KEY)); } catch { return null; } })();
-if (token && user) window.location.href = 'dashboard.html';
+// Toggle password visibility
+document.getElementById('toggle-pw').addEventListener('click', () => {
+  const pw = document.getElementById('password');
+  pw.type = pw.type === 'password' ? 'text' : 'password';
+});
 
-const showToast = (type, title, msg) => {
-  const c = document.getElementById('toast-container');
-  const el = document.createElement('div');
-  el.className = `toast ${type}`;
-  const icons = { success:'✅', error:'❌', warning:'⚠️', info:'ℹ️' };
-  el.innerHTML = `<span class="toast-icon">${icons[type]||'ℹ️'}</span><div class="toast-body"><div class="toast-title">${title}</div><div class="toast-msg">${msg}</div></div>`;
-  c.appendChild(el);
-  setTimeout(() => { el.classList.add('removing'); setTimeout(() => el.remove(), 350); }, 4000);
-};
+// Press Enter to login
+document.getElementById('password').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+document.getElementById('username').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
 
-const doLogin = async () => {
+async function doLogin() {
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
-  const errEl    = document.getElementById('login-error');
-  const errMsg   = document.getElementById('login-error-msg');
+  const errBox   = document.getElementById('error-box');
   const btn      = document.getElementById('login-btn');
-  const spinner  = document.getElementById('login-spinner');
-  const btnText  = document.getElementById('login-btn-text');
+
+  errBox.style.display = 'none';
 
   if (!username || !password) {
-    errMsg.textContent = 'Please enter username and password.';
-    errEl.classList.add('show');
+    errBox.textContent = 'Please enter your username and password.';
+    errBox.style.display = 'block';
     return;
   }
 
-  errEl.classList.remove('show');
-  btn.disabled = true;
-  btnText.textContent = 'Signing in…';
-  spinner.style.display = 'inline-block';
+  btn.textContent = 'Signing in…';
+  btn.disabled    = true;
 
   try {
-    const res = await fetch(`${TEMS_CONFIG.APPS_SCRIPT_URL}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'login', username, password })
-    });
+    // Pure GET request — no POST, no JSON headers, no CORS issues
+    const url = TEMS_CONFIG.APPS_SCRIPT_URL
+      + '?action=login'
+      + '&username=' + encodeURIComponent(username)
+      + '&password=' + encodeURIComponent(password);
+
+    const res  = await fetch(url);
     const data = await res.json();
 
     if (data.success) {
       localStorage.setItem(TEMS_CONFIG.TOKEN_KEY, data.token);
-      localStorage.setItem(TEMS_CONFIG.USER_KEY, JSON.stringify(data.user));
-      // Cache credentials for offline login
-      const cached = OfflineSync.getCachedCredentials();
-      cached[username] = { passwordHash: hashPassword(password), user: data.user };
-      localStorage.setItem('tems_cred_cache', JSON.stringify(cached));
+      localStorage.setItem(TEMS_CONFIG.USER_KEY,  JSON.stringify(data.user));
       window.location.href = 'dashboard.html';
     } else {
-      errMsg.textContent = data.message || 'Invalid credentials.';
-      errEl.classList.add('show');
+      errBox.textContent  = data.message || 'Login failed. Check your username and password.';
+      errBox.style.display = 'block';
+      btn.textContent = 'Sign In';
+      btn.disabled    = false;
     }
-  } catch (err) {
-    // Offline fallback
-    const cached = OfflineSync.getCachedCredentials();
-    if (cached[username] && cached[username].passwordHash === hashPassword(password)) {
-      localStorage.setItem(TEMS_CONFIG.TOKEN_KEY, 'offline_token');
-      localStorage.setItem(TEMS_CONFIG.USER_KEY, JSON.stringify(cached[username].user));
-      showToast('warning', 'Offline Mode', 'Logged in with cached credentials. Some features may be limited.');
-      setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
-    } else {
-      errMsg.textContent = 'Login failed. No internet connection and no cached credentials found.';
-      errEl.classList.add('show');
-    }
-  } finally {
-    btn.disabled = false;
-    btnText.textContent = 'Sign In';
-    spinner.style.display = 'none';
-  }
-};
 
-document.getElementById('login-btn').addEventListener('click', doLogin);
-document.getElementById('password').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') doLogin();
-});
+  } catch (err) {
+    errBox.textContent  = 'Connection failed: ' + err.message + '. Check your internet connection.';
+    errBox.style.display = 'block';
+    btn.textContent = 'Sign In';
+    btn.disabled    = false;
+  }
+}
 </script>
 </body>
 </html>
