@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reports — TEMS</title>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="icon" href="assets/icons/icon-192.png">
+  <!-- SheetJS for Excel export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebar-container"></div>
+  <div class="main-content">
+    <div id="header-container"></div>
+    <div class="page-content">
+      <div id="offline-banner-container"></div>
+
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Reports</h1>
+          <p class="page-subtitle">Generate, view, and export business intelligence reports</p>
+        </div>
+      </div>
+
+      <!-- Date filter -->
+      <div class="card" style="margin-bottom:20px">
+        <div class="card-body">
+          <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Date From</label>
+              <input class="form-input" type="date" id="date-from">
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Date To</label>
+              <input class="form-input" type="date" id="date-to">
+            </div>
+            <button class="btn btn-primary" onclick="loadReports()">📊 Generate Reports</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab group -->
+      <div class="tab-group">
+        <button class="tab-btn active" onclick="setTab('sales',this)">💰 Sales Report</button>
+        <button class="tab-btn" onclick="setTab('inventory',this)">📦 Inventory Report</button>
+        <button class="tab-btn" onclick="setTab('suppliers',this)">🏭 Supplier Report</button>
+        <button class="tab-btn" onclick="setTab('audit',this)">📋 Audit Log</button>
+      </div>
+
+      <!-- Sales Report -->
+      <div id="report-sales">
+        <div class="page-actions" style="margin-bottom:16px">
+          <button class="btn btn-secondary btn-sm" onclick="printReport('sales-report-table')">🖨️ Print</button>
+          <button class="btn btn-secondary btn-sm" onclick="exportCSV('sales')">📄 Export CSV</button>
+          <button class="btn btn-secondary btn-sm" onclick="exportExcel('sales')">📊 Export Excel</button>
+        </div>
+        <div class="card" id="sales-report-table">
+          <div class="card-header">
+            <span class="card-title">Sales Report</span>
+            <span id="sales-report-period" style="font-size:0.8rem;color:var(--text-muted)"></span>
+          </div>
+
+          <!-- Summary stats -->
+          <div class="card-body">
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px;margin-bottom:20px">
+              <div><div class="form-label">Total Transactions</div><div style="font-family:var(--font-display);font-size:1.3rem;font-weight:800;color:var(--accent)" id="rpt-sales-count">—</div></div>
+              <div><div class="form-label">Total Revenue</div><div style="font-family:var(--font-display);font-size:1.1rem;font-weight:800;color:var(--text-primary)" id="rpt-sales-revenue">—</div></div>
+              <div><div class="form-label">Avg. Sale Value</div><div style="font-family:var(--font-display);font-size:1.1rem;font-weight:800;color:var(--text-primary)" id="rpt-sales-avg">—</div></div>
+              <div><div class="form-label">Total Items Sold</div><div style="font-family:var(--font-display);font-size:1.1rem;font-weight:800;color:var(--text-primary)" id="rpt-sales-items">—</div></div>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table id="sales-data-table">
+              <thead><tr>
+                <th>Receipt No.</th><th>Date</th><th>Customer</th>
+                <th>Staff</th><th>Items</th><th>Total (TZS)</th><th>Payment</th>
+              </tr></thead>
+              <tbody id="sales-report-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inventory Report -->
+      <div id="report-inventory" style="display:none">
+        <div class="page-actions" style="margin-bottom:16px">
+          <button class="btn btn-secondary btn-sm" onclick="printReport('inventory-report-table')">🖨️ Print</button>
+          <button class="btn btn-secondary btn-sm" onclick="exportCSV('inventory')">📄 Export CSV</button>
+          <button class="btn btn-secondary btn-sm" onclick="exportExcel('inventory')">📊 Export Excel</button>
+        </div>
+        <div class="card" id="inventory-report-table">
+          <div class="card-header"><span class="card-title">Inventory Report</span></div>
+          <div class="table-wrap">
+            <table id="inventory-data-table">
+              <thead><tr>
+                <th>Code</th><th>Product</th><th>Category</th>
+                <th>Stock Qty</th><th>Unit</th><th>Unit Price (TZS)</th><th>Stock Value (TZS)</th><th>Status</th>
+              </tr></thead>
+              <tbody id="inventory-report-tbody"></tbody>
+            </table>
+          </div>
+          <div class="card-body" style="border-top:1px solid var(--border)">
+            <div style="font-family:var(--font-display);font-size:0.95rem;font-weight:700">
+              Total Stock Value: <span id="rpt-inv-total-value" style="color:var(--accent)">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Supplier Report -->
+      <div id="report-suppliers" style="display:none">
+        <div class="page-actions" style="margin-bottom:16px">
+          <button class="btn btn-secondary btn-sm" onclick="printReport('supplier-report-table')">🖨️ Print</button>
+          <button class="btn btn-secondary btn-sm" onclick="exportCSV('suppliers')">📄 Export CSV</button>
+        </div>
+        <div class="card" id="supplier-report-table">
+          <div class="card-header"><span class="card-title">Supplier Report</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Supplier</th><th>Contact</th><th>Region</th>
+                <th>Total Purchases</th><th>Purchase Value (TZS)</th><th>Status</th>
+              </tr></thead>
+              <tbody id="supplier-report-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audit Log -->
+      <div id="report-audit" style="display:none">
+        <div class="card">
+          <div class="card-header"><span class="card-title">📋 System Audit Log</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Timestamp</th><th>User</th><th>Action</th><th>Module</th><th>Description</th>
+              </tr></thead>
+              <tbody id="audit-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+<script src="js/config.js"></script>
+<script src="js/offline-sync.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+<script>
+document.getElementById('sidebar-container').innerHTML = AppTemplate.getSidebarHTML();
+document.getElementById('header-container').innerHTML = AppTemplate.getHeaderHTML('Reports', 'Administration › Reports');
+document.getElementById('offline-banner-container').innerHTML = AppTemplate.getOfflineBanner();
+
+// Default date range: current month
+const now = new Date();
+const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+const today = now.toISOString().split('T')[0];
+document.getElementById('date-from').value = firstOfMonth;
+document.getElementById('date-to').value   = today;
+
+let salesData = [], inventoryData = [], suppliersData = [], auditData = [];
+let currentTab = 'sales';
+
+function setTab(tab, btn) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  ['sales','inventory','suppliers','audit'].forEach(t => {
+    const el = document.getElementById(`report-${t}`);
+    if (el) el.style.display = t === tab ? 'block' : 'none';
+  });
+}
+
+async function loadReports() {
+  const from = document.getElementById('date-from').value;
+  const to   = document.getElementById('date-to').value;
+  if (!from || !to) { UI.showToast('warning', 'Validation', 'Please select a date range.'); return; }
+
+  UI.showTableLoading('sales-report-tbody');
+  UI.showTableLoading('inventory-report-tbody');
+  UI.showTableLoading('supplier-report-tbody');
+  UI.showTableLoading('audit-tbody');
+
+  document.getElementById('sales-report-period').textContent = `${UI.formatDate(from)} – ${UI.formatDate(to)}`;
+
+  try {
+    const [sr, ir, spr, al] = await Promise.all([
+      API.getSalesReport({ from, to }),
+      API.getInventoryReport({ from, to }),
+      API.getSupplierReport({ from, to }),
+      API.getAuditLogs({ from, to, limit: 200 })
+    ]);
+    salesData      = sr.sales || [];
+    inventoryData  = ir.products || [];
+    suppliersData  = spr.suppliers || [];
+    auditData      = al.logs || [];
+    renderSalesReport();
+    renderInventoryReport();
+    renderSupplierReport();
+    renderAuditLog();
+  } catch (err) {
+    UI.showToast('error', 'Error', 'Could not load report data.');
+  }
+}
+
+function renderSalesReport() {
+  const tbody = document.getElementById('sales-report-tbody');
+  if (!salesData.length) { UI.showTableEmpty('sales-report-tbody', 'No sales in selected period'); return; }
+  const total    = salesData.reduce((s, r) => s + (r.totalAmount || 0), 0);
+  const itemsQty = salesData.reduce((s, r) => s + (r.itemCount || 0), 0);
+  document.getElementById('rpt-sales-count').textContent   = salesData.length;
+  document.getElementById('rpt-sales-revenue').textContent = UI.formatCurrency(total);
+  document.getElementById('rpt-sales-avg').textContent     = UI.formatCurrency(total / salesData.length);
+  document.getElementById('rpt-sales-items').textContent   = itemsQty;
+  tbody.innerHTML = salesData.map(s => `
+    <tr>
+      <td class="mono">${s.receiptNo || s.id?.slice(0,8)}</td>
+      <td>${UI.formatDate(s.saleDate)}</td>
+      <td>${s.customer || '—'}</td>
+      <td>${s.staffName || '—'}</td>
+      <td>${s.itemCount || '—'}</td>
+      <td class="strong">${UI.formatCurrency(s.totalAmount)}</td>
+      <td><span class="badge badge-muted">${s.payment || 'cash'}</span></td>
+    </tr>
+  `).join('');
+}
+
+function renderInventoryReport() {
+  const tbody = document.getElementById('inventory-report-tbody');
+  if (!inventoryData.length) { UI.showTableEmpty('inventory-report-tbody', 'No inventory data'); return; }
+  let totalValue = 0;
+  tbody.innerHTML = inventoryData.map(p => {
+    const val = (p.stockQty || 0) * (p.unitPrice || 0);
+    totalValue += val;
+    const isLow  = p.stockQty > 0 && p.stockQty < TEMS_CONFIG.LOW_STOCK_THRESHOLD;
+    const isZero = !p.stockQty || p.stockQty <= 0;
+    const status = isZero ? '<span class="badge badge-red">Out</span>' : isLow ? '<span class="badge badge-amber">Low</span>' : '<span class="badge badge-green">OK</span>';
+    return `
+      <tr>
+        <td class="mono">${p.code || '—'}</td>
+        <td class="strong">${p.name}</td>
+        <td><span class="badge badge-muted">${p.category || '—'}</span></td>
+        <td>${p.stockQty ?? 0}</td>
+        <td>${p.unit || 'kg'}</td>
+        <td>${UI.formatCurrency(p.unitPrice)}</td>
+        <td>${UI.formatCurrency(val)}</td>
+        <td>${status}</td>
+      </tr>
+    `;
+  }).join('');
+  document.getElementById('rpt-inv-total-value').textContent = UI.formatCurrency(totalValue);
+}
+
+function renderSupplierReport() {
+  const tbody = document.getElementById('supplier-report-tbody');
+  if (!suppliersData.length) { UI.showTableEmpty('supplier-report-tbody', 'No supplier data'); return; }
+  tbody.innerHTML = suppliersData.map(s => `
+    <tr>
+      <td class="strong">${s.name}</td>
+      <td>${s.contactPerson || '—'}</td>
+      <td>${s.region || '—'}</td>
+      <td>${s.purchaseCount || 0}</td>
+      <td class="strong">${UI.formatCurrency(s.totalPurchases || 0)}</td>
+      <td><span class="badge ${s.active !== false ? 'badge-green' : 'badge-muted'}">${s.active !== false ? 'Active' : 'Inactive'}</span></td>
+    </tr>
+  `).join('');
+}
+
+function renderAuditLog() {
+  const tbody = document.getElementById('audit-tbody');
+  if (!auditData.length) { UI.showTableEmpty('audit-tbody', 'No audit records'); return; }
+  const actionColors = { CREATE: 'badge-green', UPDATE: 'badge-blue', DELETE: 'badge-red', LOGIN: 'badge-purple', SALE: 'badge-green', PURCHASE: 'badge-amber' };
+  tbody.innerHTML = auditData.map(l => `
+    <tr>
+      <td class="mono" style="font-size:0.78rem">${UI.formatDate(l.timestamp)}</td>
+      <td>${l.userName || '—'}</td>
+      <td><span class="badge ${actionColors[l.action] || 'badge-muted'}">${l.action || '—'}</span></td>
+      <td><span class="badge badge-muted">${l.module || '—'}</span></td>
+      <td style="font-size:0.83rem">${l.description || '—'}</td>
+    </tr>
+  `).join('');
+}
+
+// ---- Export helpers ----
+function exportCSV(type) {
+  let data, filename, headers;
+  if (type === 'sales') {
+    headers = ['Receipt No', 'Date', 'Customer', 'Staff', 'Items', 'Total TZS', 'Payment'];
+    data = salesData.map(s => [s.receiptNo||s.id?.slice(0,8), s.saleDate, s.customer||'', s.staffName||'', s.itemCount||'', s.totalAmount||0, s.payment||'cash']);
+    filename = `tems_sales_report_${Date.now()}.csv`;
+  } else if (type === 'inventory') {
+    headers = ['Code', 'Product', 'Category', 'Stock Qty', 'Unit', 'Unit Price TZS', 'Stock Value TZS', 'Status'];
+    data = inventoryData.map(p => [p.code||'', p.name, p.category||'', p.stockQty||0, p.unit||'kg', p.unitPrice||0, (p.stockQty||0)*(p.unitPrice||0), p.stockQty <= 0 ? 'Out' : p.stockQty < TEMS_CONFIG.LOW_STOCK_THRESHOLD ? 'Low' : 'OK']);
+    filename = `tems_inventory_report_${Date.now()}.csv`;
+  } else {
+    headers = ['Supplier', 'Contact', 'Region', 'Purchases', 'Value TZS', 'Status'];
+    data = suppliersData.map(s => [s.name, s.contactPerson||'', s.region||'', s.purchaseCount||0, s.totalPurchases||0, s.active !== false ? 'Active' : 'Inactive']);
+    filename = `tems_supplier_report_${Date.now()}.csv`;
+  }
+  const rows = [headers, ...data].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  downloadBlob(rows, filename, 'text/csv');
+}
+
+function exportExcel(type) {
+  let tableId;
+  if (type === 'sales')     tableId = 'sales-data-table';
+  else if (type === 'inventory') tableId = 'inventory-data-table';
+
+  if (!tableId || !document.getElementById(tableId)) {
+    exportCSV(type); return;
+  }
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.table_to_sheet(document.getElementById(tableId));
+  XLSX.utils.book_append_sheet(wb, ws, type.charAt(0).toUpperCase() + type.slice(1));
+  XLSX.writeFile(wb, `tems_${type}_${Date.now()}.xlsx`);
+}
+
+function downloadBlob(content, filename, type) {
+  const blob = new Blob([content], { type });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function printReport(cardId) {
+  const el = document.getElementById(cardId);
+  if (!el) return;
+  const w = window.open('', '_blank');
+  w.document.write(`
+    <html><head><title>TEMS Report</title>
+    <style>
+      body { font-family: Arial, sans-serif; font-size: 12px; color: #000; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; }
+      th { background: #f0f0f0; font-weight: bold; }
+      h2 { margin-bottom: 8px; }
+    </style>
+    </head><body>
+    <h2>TEMS — Tobacco Enterprise Management System</h2>
+    ${el.innerHTML}
+    </body></html>
+  `);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 300);
+}
+
+// Load on init
+if (UI.initPage('reports')) {
+  loadReports();
+}
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js').catch(console.warn);
+</script>
+</body>
+</html>

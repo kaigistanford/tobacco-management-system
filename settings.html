@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings — TEMS</title>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="icon" href="assets/icons/icon-192.png">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebar-container"></div>
+  <div class="main-content">
+    <div id="header-container"></div>
+    <div class="page-content">
+      <div id="offline-banner-container"></div>
+
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Settings</h1>
+          <p class="page-subtitle">System configuration and data management</p>
+        </div>
+      </div>
+
+      <div class="tab-group">
+        <button class="tab-btn active" onclick="setTab('general',this)">⚙️ General</button>
+        <button class="tab-btn" onclick="setTab('connection',this)">🔗 Connection</button>
+        <button class="tab-btn" onclick="setTab('data',this)">💾 Data</button>
+        <button class="tab-btn" onclick="setTab('about',this)">ℹ️ About</button>
+      </div>
+
+      <!-- General Settings -->
+      <div id="tab-general">
+        <div class="card" style="max-width:600px">
+          <div class="card-header"><span class="card-title">General Settings</span></div>
+          <div class="card-body">
+            <div class="form-grid">
+              <div class="form-group full">
+                <label class="form-label">Company Name</label>
+                <input class="form-input" type="text" id="set-company" placeholder="e.g. Tanzania Tobacco Board">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Currency Symbol</label>
+                <input class="form-input" type="text" id="set-currency" value="TZS" placeholder="TZS">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Low Stock Threshold (units)</label>
+                <input class="form-input" type="number" id="set-threshold" min="1" placeholder="50">
+              </div>
+              <div class="form-group full">
+                <label class="form-label">Company Address</label>
+                <textarea class="form-input" id="set-address" placeholder="Physical address…"></textarea>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Contact Phone</label>
+                <input class="form-input" type="tel" id="set-phone" placeholder="+255 …">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Contact Email</label>
+                <input class="form-input" type="email" id="set-email" placeholder="info@company.co.tz">
+              </div>
+            </div>
+            <div class="form-actions" style="margin-top:16px">
+              <button class="btn btn-primary" onclick="saveGeneralSettings()">💾 Save Settings</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Connection Settings -->
+      <div id="tab-connection" style="display:none">
+        <div class="card" style="max-width:600px">
+          <div class="card-header"><span class="card-title">Google Apps Script Connection</span></div>
+          <div class="card-body">
+            <div class="form-group" style="margin-bottom:16px">
+              <label class="form-label">Apps Script Web App URL</label>
+              <input class="form-input" type="url" id="set-api-url"
+                placeholder="https://script.google.com/macros/s/…/exec">
+              <div class="form-hint" style="margin-top:6px">
+                Deploy your Apps Script as a web app and paste the URL here. This is where all data is stored.
+              </div>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-primary" onclick="saveApiUrl()">💾 Save URL</button>
+              <button class="btn btn-secondary" onclick="testConnection()">🔌 Test Connection</button>
+            </div>
+            <div id="connection-result" style="margin-top:14px;display:none"></div>
+          </div>
+        </div>
+
+        <div class="card" style="max-width:600px;margin-top:16px">
+          <div class="card-header"><span class="card-title">Sync Status</span></div>
+          <div class="card-body">
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <span style="font-size:0.85rem;color:var(--text-secondary)">Connection</span>
+                <span id="sync-status-text" class="badge badge-green">Online</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <span style="font-size:0.85rem;color:var(--text-secondary)">Queued changes</span>
+                <span id="queue-count" class="badge badge-muted">—</span>
+              </div>
+              <div class="form-actions">
+                <button class="btn btn-secondary" onclick="forceSyncNow()">🔄 Sync Now</button>
+                <button class="btn btn-danger" onclick="clearQueue()">🗑️ Clear Queue</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Data Management -->
+      <div id="tab-data" style="display:none">
+        <div class="card" style="max-width:600px">
+          <div class="card-header"><span class="card-title">Local Cache</span></div>
+          <div class="card-body">
+            <div style="margin-bottom:16px;font-size:0.85rem;color:var(--text-secondary)">
+              The app caches data locally for offline access. You can clear this cache to free up space,
+              but note that data will need to be re-fetched from the server.
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-secondary" onclick="clearLocalCache()">🗑️ Clear Cache</button>
+              <button class="btn btn-secondary" onclick="exportLocalData()">📦 Export Local Data</button>
+            </div>
+            <div id="cache-info" style="margin-top:14px;font-size:0.82rem;color:var(--text-muted)">
+              Loading cache info…
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="max-width:600px;margin-top:16px">
+          <div class="card-header"><span class="card-title">Import / Restore Data</span></div>
+          <div class="card-body">
+            <div style="margin-bottom:16px;font-size:0.85rem;color:var(--text-secondary)">
+              Import a previously exported JSON backup to restore local cache data.
+            </div>
+            <div class="form-group">
+              <label class="form-label">Select JSON backup file</label>
+              <input class="form-input" type="file" id="import-file" accept=".json">
+            </div>
+            <div class="form-actions" style="margin-top:12px">
+              <button class="btn btn-primary" onclick="importData()">📥 Import Data</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- About -->
+      <div id="tab-about" style="display:none">
+        <div class="card" style="max-width:600px">
+          <div class="card-body" style="text-align:center;padding:40px">
+            <div style="font-size:3rem;margin-bottom:12px">🌿</div>
+            <div style="font-family:var(--font-display);font-size:1.4rem;font-weight:800;color:var(--accent);margin-bottom:4px">TEMS</div>
+            <div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:20px">Tobacco Enterprise Management System</div>
+            <div class="divider"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0;text-align:left">
+              <div><div class="form-label">Version</div><div style="color:var(--text-primary)">1.0.0</div></div>
+              <div><div class="form-label">Platform</div><div style="color:var(--text-primary)">PWA (GitHub Pages)</div></div>
+              <div><div class="form-label">Backend</div><div style="color:var(--text-primary)">Google Apps Script</div></div>
+              <div><div class="form-label">Offline</div><div style="color:var(--accent)">✅ Supported</div></div>
+            </div>
+            <div class="divider"></div>
+            <div style="font-size:0.78rem;color:var(--text-muted);margin-top:20px">
+              Built for Tanzania's tobacco sector. Supports Flue-Cured, Burley, Oriental,
+              and Dark Air-Cured tobacco operations across buying centres and enterprises.
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+<script src="js/config.js"></script>
+<script src="js/offline-sync.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+<script>
+document.getElementById('sidebar-container').innerHTML = AppTemplate.getSidebarHTML();
+document.getElementById('header-container').innerHTML = AppTemplate.getHeaderHTML('Settings', 'Administration › Settings');
+document.getElementById('offline-banner-container').innerHTML = AppTemplate.getOfflineBanner();
+
+function setTab(tab, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  ['general','connection','data','about'].forEach(t => {
+    const el = document.getElementById(`tab-${t}`);
+    if (el) el.style.display = t === tab ? 'block' : 'none';
+  });
+  if (tab === 'connection') loadSyncStatus();
+  if (tab === 'data') loadCacheInfo();
+}
+
+// ---- General Settings ----
+function loadGeneralSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem('tems_settings') || '{}');
+    document.getElementById('set-company').value   = s.companyName || '';
+    document.getElementById('set-currency').value  = s.currency || 'TZS';
+    document.getElementById('set-threshold').value = s.lowStockThreshold || TEMS_CONFIG.LOW_STOCK_THRESHOLD;
+    document.getElementById('set-address').value   = s.address || '';
+    document.getElementById('set-phone').value     = s.phone || '';
+    document.getElementById('set-email').value     = s.email || '';
+  } catch {}
+}
+
+function saveGeneralSettings() {
+  const settings = {
+    companyName:       document.getElementById('set-company').value.trim(),
+    currency:          document.getElementById('set-currency').value.trim() || 'TZS',
+    lowStockThreshold: parseInt(document.getElementById('set-threshold').value) || 50,
+    address:           document.getElementById('set-address').value.trim(),
+    phone:             document.getElementById('set-phone').value.trim(),
+    email:             document.getElementById('set-email').value.trim()
+  };
+  localStorage.setItem('tems_settings', JSON.stringify(settings));
+  UI.showToast('success', 'Settings Saved', 'General settings updated.');
+}
+
+// ---- Connection ----
+function loadApiUrl() {
+  document.getElementById('set-api-url').value = localStorage.getItem('tems_api_url') || TEMS_CONFIG.APPS_SCRIPT_URL;
+}
+
+function saveApiUrl() {
+  const url = document.getElementById('set-api-url').value.trim();
+  if (!url.startsWith('https://script.google.com')) {
+    UI.showToast('warning', 'Invalid URL', 'Must be a Google Apps Script URL.'); return;
+  }
+  localStorage.setItem('tems_api_url', url);
+  UI.showToast('success', 'URL Saved', 'Reload the page to use the new URL.');
+}
+
+async function testConnection() {
+  const url = document.getElementById('set-api-url').value.trim();
+  const resultEl = document.getElementById('connection-result');
+  resultEl.style.display = 'block';
+  resultEl.innerHTML = '<div style="color:var(--text-muted);font-size:0.83rem">⏳ Testing connection…</div>';
+  try {
+    const res = await fetch(`${url}?action=ping`);
+    const data = await res.json();
+    if (data.success || data.pong) {
+      resultEl.innerHTML = '<div class="badge badge-green" style="display:inline-flex">✅ Connection successful — Apps Script is responding.</div>';
+    } else {
+      resultEl.innerHTML = `<div class="badge badge-amber" style="display:inline-flex">⚠️ Connected but unexpected response: ${JSON.stringify(data)}</div>`;
+    }
+  } catch (err) {
+    resultEl.innerHTML = `<div class="badge badge-red" style="display:inline-flex">❌ Connection failed: ${err.message}</div>`;
+  }
+}
+
+async function loadSyncStatus() {
+  const count = await OfflineSync.getQueueCount();
+  const statusEl = document.getElementById('sync-status-text');
+  const countEl  = document.getElementById('queue-count');
+  if (!navigator.onLine) {
+    statusEl.className = 'badge badge-amber'; statusEl.textContent = 'Offline';
+  } else {
+    statusEl.className = 'badge badge-green'; statusEl.textContent = 'Online';
+  }
+  countEl.textContent = count;
+  countEl.className = count > 0 ? 'badge badge-amber' : 'badge badge-muted';
+}
+
+async function forceSyncNow() {
+  if (!navigator.onLine) { UI.showToast('warning', 'Offline', 'Cannot sync while offline.'); return; }
+  UI.showToast('info', 'Syncing…', 'Sending queued changes to server.');
+  await OfflineSync.syncNow();
+  loadSyncStatus();
+}
+
+async function clearQueue() {
+  const count = await OfflineSync.getQueueCount();
+  if (count === 0) { UI.showToast('info', 'Nothing to Clear', 'Queue is already empty.'); return; }
+  UI.confirm(`Clear ${count} queued change(s)? These will NOT be sent to the server.`, async () => {
+    const db = await OfflineSync.openDB();
+    const tx = db.transaction('sync_queue', 'readwrite');
+    tx.objectStore('sync_queue').clear();
+    UI.showToast('success', 'Queue Cleared', `${count} items removed.`);
+    loadSyncStatus();
+  }, { title: 'Clear Sync Queue', danger: true });
+}
+
+// ---- Data ----
+async function loadCacheInfo() {
+  const keys = ['products','suppliers','purchases','sales','shipments','dashboard'];
+  let info = [];
+  for (const key of keys) {
+    const val = await OfflineSync.cacheGet(key);
+    if (val) {
+      const size = JSON.stringify(val).length;
+      info.push(`${key}: ${Array.isArray(val) ? val.length + ' records' : '1 record'} (~${(size/1024).toFixed(1)} KB)`);
+    }
+  }
+  document.getElementById('cache-info').innerHTML = info.length
+    ? info.map(i => `<div>• ${i}</div>`).join('')
+    : 'No cached data found.';
+}
+
+async function clearLocalCache() {
+  UI.confirm('Clear all locally cached data? You will need to reload pages to re-fetch from server.', async () => {
+    const keys = ['products','suppliers','purchases','sales','shipments','dashboard','inventory'];
+    for (const key of keys) {
+      try {
+        const db = await OfflineSync.openDB();
+        const tx = db.transaction('data_cache', 'readwrite');
+        tx.objectStore('data_cache').delete(key);
+      } catch {}
+    }
+    UI.showToast('success', 'Cache Cleared', 'All local data removed.');
+    loadCacheInfo();
+  }, { title: 'Clear Local Cache', danger: true });
+}
+
+async function exportLocalData() {
+  const keys = ['products','suppliers','purchases','sales','shipments','dashboard'];
+  const backup = { exportedAt: new Date().toISOString(), version: '1.0.0', data: {} };
+  for (const key of keys) {
+    const val = await OfflineSync.cacheGet(key);
+    if (val) backup.data[key] = val;
+  }
+  const json = JSON.stringify(backup, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = `tems_backup_${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  UI.showToast('success', 'Export Complete', 'Backup JSON downloaded.');
+}
+
+async function importData() {
+  const file = document.getElementById('import-file').files[0];
+  if (!file) { UI.showToast('warning', 'No File', 'Select a JSON backup file.'); return; }
+  try {
+    const text = await file.text();
+    const backup = JSON.parse(text);
+    if (!backup.data) throw new Error('Invalid backup format.');
+    for (const [key, val] of Object.entries(backup.data)) {
+      await OfflineSync.cacheSet(key, val);
+    }
+    UI.showToast('success', 'Import Complete', `Data restored from backup (${backup.exportedAt}).`);
+    loadCacheInfo();
+  } catch (err) {
+    UI.showToast('error', 'Import Failed', err.message);
+  }
+}
+
+// Init
+if (UI.initPage('settings')) {
+  loadGeneralSettings();
+  loadApiUrl();
+}
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js').catch(console.warn);
+</script>
+</body>
+</html>

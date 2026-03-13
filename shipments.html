@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shipments — TEMS</title>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="icon" href="assets/icons/icon-192.png">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebar-container"></div>
+  <div class="main-content">
+    <div id="header-container"></div>
+    <div class="page-content">
+      <div id="offline-banner-container"></div>
+
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Shipments</h1>
+          <p class="page-subtitle">Track incoming and outgoing tobacco shipments</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-primary" onclick="openShipmentModal()">＋ New Shipment</button>
+        </div>
+      </div>
+
+      <!-- Summary cards -->
+      <div class="stats-grid" style="margin-bottom:20px">
+        <div class="stat-card amber"><div class="stat-icon">⏳</div><div class="stat-label">Pending</div><div class="stat-value" id="count-pending">—</div></div>
+        <div class="stat-card blue"><div class="stat-icon">🚚</div><div class="stat-label">In Transit</div><div class="stat-value" id="count-transit">—</div></div>
+        <div class="stat-card green"><div class="stat-icon">✅</div><div class="stat-label">Delivered</div><div class="stat-value" id="count-delivered">—</div></div>
+        <div class="stat-card red"><div class="stat-icon">❌</div><div class="stat-label">Cancelled</div><div class="stat-value" id="count-cancelled">—</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Shipment Records</span>
+          <div style="display:flex;gap:8px">
+            <div class="toolbar-search" style="margin:0">
+              <span>🔍</span>
+              <input type="text" id="search-input" placeholder="Search tracking no…" oninput="filterShipments()">
+            </div>
+            <select class="form-input" id="status-filter" onchange="filterShipments()" style="width:130px;padding:7px">
+              <option value="">All Status</option>
+              <option value="pending">Pending</option>
+              <option value="in_transit">In Transit</option>
+              <option value="delivered">Delivered</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Tracking No.</th><th>Purchase Ref</th><th>Origin</th><th>Destination</th>
+              <th>Ship Date</th><th>ETA</th><th>Status</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="shipments-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="pagination"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="shipment-modal">
+  <div class="modal" style="max-width:700px">
+    <div class="modal-header">
+      <h2 class="modal-title" id="shipment-modal-title">New Shipment</h2>
+      <button class="modal-close" data-close-modal="shipment-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="shipment-id">
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Tracking Number *</label>
+          <input class="form-input" type="text" id="shipment-tracking" placeholder="e.g. TZB-2024-001">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Linked Purchase</label>
+          <select class="form-input" id="shipment-purchase">
+            <option value="">None</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Origin</label>
+          <input class="form-input" type="text" id="shipment-origin" placeholder="e.g. Tabora">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Destination</label>
+          <input class="form-input" type="text" id="shipment-destination" placeholder="e.g. Dar es Salaam">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Shipment Date</label>
+          <input class="form-input" type="date" id="shipment-date">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Estimated Arrival (ETA)</label>
+          <input class="form-input" type="date" id="shipment-eta">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Carrier / Transporter</label>
+          <input class="form-input" type="text" id="shipment-carrier" placeholder="Carrier name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Status</label>
+          <select class="form-input" id="shipment-status">
+            <option value="pending">Pending</option>
+            <option value="in_transit">In Transit</option>
+            <option value="delivered">Delivered</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Weight / Volume (kg)</label>
+          <input class="form-input" type="number" id="shipment-weight" min="0" placeholder="0">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Number of Bales/Units</label>
+          <input class="form-input" type="number" id="shipment-units" min="0" placeholder="0">
+        </div>
+        <div class="form-group full">
+          <label class="form-label">Notes</label>
+          <textarea class="form-input" id="shipment-notes" placeholder="Optional notes…"></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-close-modal="shipment-modal">Cancel</button>
+      <button class="btn btn-primary" onclick="saveShipment()">Save Shipment</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+<script src="js/config.js"></script>
+<script src="js/offline-sync.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+<script>
+document.getElementById('sidebar-container').innerHTML = AppTemplate.getSidebarHTML();
+document.getElementById('header-container').innerHTML = AppTemplate.getHeaderHTML('Shipments', 'Operations › Shipments');
+document.getElementById('offline-banner-container').innerHTML = AppTemplate.getOfflineBanner();
+
+let allShipments = [], allPurchases = [];
+let currentPage = 1;
+const PER_PAGE = TEMS_CONFIG.ROWS_PER_PAGE;
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('shipment-date').value = new Date().toISOString().split('T')[0];
+});
+
+async function loadPageData() {
+  UI.showTableLoading('shipments-tbody');
+  try {
+    const [sd, pd] = await Promise.all([
+      navigator.onLine ? API.getShipments() : OfflineSync.cacheGet('shipments').then(c => ({ shipments: c || [] })),
+      navigator.onLine ? API.getPurchases() : OfflineSync.cacheGet('purchases').then(c => ({ purchases: c || [] }))
+    ]);
+    allShipments = sd.shipments || [];
+    allPurchases = pd.purchases || [];
+    if (navigator.onLine) await OfflineSync.cacheSet('shipments', allShipments);
+    populatePurchaseDropdown();
+    updateSummaryCounts();
+    filterShipments();
+  } catch (err) {
+    UI.showToast('error', 'Error', 'Could not load shipments.');
+    UI.showTableEmpty('shipments-tbody');
+  }
+}
+
+function populatePurchaseDropdown() {
+  const sel = document.getElementById('shipment-purchase');
+  sel.innerHTML = '<option value="">None</option>';
+  allPurchases.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = `${p.purchaseNo || p.id?.slice(0,8)} — ${p.supplierName || ''}`;
+    sel.appendChild(opt);
+  });
+}
+
+function updateSummaryCounts() {
+  const counts = { pending: 0, in_transit: 0, delivered: 0, cancelled: 0 };
+  allShipments.forEach(s => { counts[s.status] = (counts[s.status] || 0) + 1; });
+  document.getElementById('count-pending').textContent   = counts.pending;
+  document.getElementById('count-transit').textContent   = counts.in_transit;
+  document.getElementById('count-delivered').textContent = counts.delivered;
+  document.getElementById('count-cancelled').textContent = counts.cancelled;
+}
+
+function filterShipments() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  const st = document.getElementById('status-filter').value;
+  const filtered = allShipments.filter(s =>
+    (!q || s.trackingNo?.toLowerCase().includes(q) || s.origin?.toLowerCase().includes(q) || s.destination?.toLowerCase().includes(q)) &&
+    (!st || s.status === st)
+  );
+  currentPage = 1;
+  renderShipments(filtered);
+}
+
+function renderShipments(shipments) {
+  const tbody = document.getElementById('shipments-tbody');
+  if (!shipments.length) { UI.showTableEmpty('shipments-tbody'); return; }
+  const start = (currentPage - 1) * PER_PAGE;
+  const page  = shipments.slice(start, start + PER_PAGE);
+  const statusBadge = { pending: 'badge-amber', in_transit: 'badge-blue', delivered: 'badge-green', cancelled: 'badge-red' };
+  tbody.innerHTML = page.map(s => `
+    <tr>
+      <td class="mono">${s.trackingNo || '—'}</td>
+      <td class="mono">${s.purchaseRef || '—'}</td>
+      <td>${s.origin || '—'}</td>
+      <td>${s.destination || '—'}</td>
+      <td>${UI.formatDate(s.shipDate)}</td>
+      <td>${UI.formatDate(s.eta)}</td>
+      <td><span class="badge ${statusBadge[s.status] || 'badge-muted'}">${(s.status || 'pending').replace('_', ' ')}</span></td>
+      <td>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" onclick='openShipmentModal(${JSON.stringify(s).replace(/'/g,"&#39;")})'>✏️ Update</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+  UI.buildPagination('pagination', shipments.length, currentPage, PER_PAGE, p => { currentPage = p; renderShipments(shipments); });
+}
+
+function openShipmentModal(s = null) {
+  document.getElementById('shipment-id').value = s?.id || '';
+  document.getElementById('shipment-tracking').value = s?.trackingNo || '';
+  document.getElementById('shipment-purchase').value = s?.purchaseId || '';
+  document.getElementById('shipment-origin').value = s?.origin || '';
+  document.getElementById('shipment-destination').value = s?.destination || '';
+  document.getElementById('shipment-date').value = s?.shipDate || new Date().toISOString().split('T')[0];
+  document.getElementById('shipment-eta').value = s?.eta || '';
+  document.getElementById('shipment-carrier').value = s?.carrier || '';
+  document.getElementById('shipment-status').value = s?.status || 'pending';
+  document.getElementById('shipment-weight').value = s?.weight || '';
+  document.getElementById('shipment-units').value = s?.units || '';
+  document.getElementById('shipment-notes').value = s?.notes || '';
+  document.getElementById('shipment-modal-title').textContent = s ? 'Update Shipment' : 'New Shipment';
+  UI.openModal('shipment-modal');
+}
+
+async function saveShipment() {
+  const tracking = document.getElementById('shipment-tracking').value.trim();
+  if (!tracking) { UI.showToast('warning', 'Validation', 'Tracking number is required.'); return; }
+  const id = document.getElementById('shipment-id').value;
+  const payload = {
+    id: id || undefined,
+    trackingNo:    tracking,
+    purchaseId:    document.getElementById('shipment-purchase').value,
+    origin:        document.getElementById('shipment-origin').value.trim(),
+    destination:   document.getElementById('shipment-destination').value.trim(),
+    shipDate:      document.getElementById('shipment-date').value,
+    eta:           document.getElementById('shipment-eta').value,
+    carrier:       document.getElementById('shipment-carrier').value.trim(),
+    status:        document.getElementById('shipment-status').value,
+    weight:        parseFloat(document.getElementById('shipment-weight').value) || 0,
+    units:         parseInt(document.getElementById('shipment-units').value) || 0,
+    notes:         document.getElementById('shipment-notes').value.trim()
+  };
+  try {
+    await API.callWithFallback(id ? 'updateShipment' : 'createShipment', payload, `${id ? 'Update' : 'Create'} shipment: ${tracking}`);
+    UI.closeModal('shipment-modal');
+    UI.showToast('success', id ? 'Shipment Updated' : 'Shipment Created', tracking);
+    loadPageData();
+  } catch (err) { UI.showToast('error', 'Save Failed', err.message); }
+}
+
+if (UI.initPage('shipments')) loadPageData();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js').catch(console.warn);
+</script>
+</body>
+</html>

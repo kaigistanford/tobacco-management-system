@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inventory — TEMS</title>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="icon" href="assets/icons/icon-192.png">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebar-container"></div>
+  <div class="main-content">
+    <div id="header-container"></div>
+    <div class="page-content">
+      <div id="offline-banner-container"></div>
+
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Inventory</h1>
+          <p class="page-subtitle">Monitor stock levels and make manual adjustments</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-secondary" onclick="openAdjustModal()">⚖️ Adjust Stock</button>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-grid" style="margin-bottom:20px">
+        <div class="stat-card green"><div class="stat-icon">📦</div><div class="stat-label">Total Products</div><div class="stat-value" id="inv-total">—</div></div>
+        <div class="stat-card amber"><div class="stat-icon">⚠️</div><div class="stat-label">Low Stock</div><div class="stat-value" id="inv-low">—</div></div>
+        <div class="stat-card red"><div class="stat-icon">🚫</div><div class="stat-label">Out of Stock</div><div class="stat-value" id="inv-zero">—</div></div>
+        <div class="stat-card blue"><div class="stat-icon">💼</div><div class="stat-label">Total Units (kg)</div><div class="stat-value" id="inv-units">—</div></div>
+      </div>
+
+      <!-- Tab group -->
+      <div class="tab-group" id="tab-group">
+        <button class="tab-btn active" onclick="setTab('all',this)">All Stock</button>
+        <button class="tab-btn" onclick="setTab('low',this)">Low Stock</button>
+        <button class="tab-btn" onclick="setTab('out',this)">Out of Stock</button>
+        <button class="tab-btn" onclick="setTab('history',this)">Adjustment History</button>
+      </div>
+
+      <!-- Stock table -->
+      <div id="stock-panel">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Stock Levels</span>
+            <div class="toolbar-search" style="margin:0">
+              <span>🔍</span>
+              <input type="text" id="search-input" placeholder="Search products…" oninput="filterInventory()">
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Code</th><th>Product</th><th>Category</th>
+                <th>Stock Qty</th><th>Unit</th><th>Reorder Level</th><th>Status</th><th>Actions</th>
+              </tr></thead>
+              <tbody id="inventory-tbody"></tbody>
+            </table>
+          </div>
+          <div class="pagination" id="pagination"></div>
+        </div>
+      </div>
+
+      <!-- History panel -->
+      <div id="history-panel" style="display:none">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Stock Adjustment History</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Date</th><th>Product</th><th>Type</th><th>Qty Change</th><th>Before</th><th>After</th><th>Reason</th><th>By</th>
+              </tr></thead>
+              <tbody id="history-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Adjust Stock Modal -->
+<div class="modal-overlay" id="adjust-modal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <h2 class="modal-title">⚖️ Adjust Stock</h2>
+      <button class="modal-close" data-close-modal="adjust-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full">
+          <label class="form-label">Product *</label>
+          <select class="form-input" id="adj-product">
+            <option value="">Select product…</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Adjustment Type *</label>
+          <select class="form-input" id="adj-type">
+            <option value="add">Add Stock (Stock In)</option>
+            <option value="remove">Remove Stock (Stock Out)</option>
+            <option value="set">Set Exact Quantity</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Quantity *</label>
+          <input class="form-input" type="number" id="adj-qty" min="1" placeholder="0">
+        </div>
+        <div class="form-group full">
+          <label class="form-label">Reason *</label>
+          <select class="form-input" id="adj-reason">
+            <option value="">Select reason…</option>
+            <option>Physical count correction</option>
+            <option>Damaged / spoiled goods</option>
+            <option>Returned to supplier</option>
+            <option>Write-off</option>
+            <option>Opening stock entry</option>
+            <option>Transfer</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div class="form-group full">
+          <label class="form-label">Notes</label>
+          <textarea class="form-input" id="adj-notes" placeholder="Optional details…"></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-close-modal="adjust-modal">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAdjustment()">⚖️ Apply Adjustment</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+<script src="js/config.js"></script>
+<script src="js/offline-sync.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+<script>
+document.getElementById('sidebar-container').innerHTML = AppTemplate.getSidebarHTML();
+document.getElementById('header-container').innerHTML = AppTemplate.getHeaderHTML('Inventory', 'Operations › Inventory');
+document.getElementById('offline-banner-container').innerHTML = AppTemplate.getOfflineBanner();
+
+let allProducts = [], adjustHistory = [];
+let currentTab = 'all';
+let currentPage = 1;
+const PER_PAGE = TEMS_CONFIG.ROWS_PER_PAGE;
+
+async function loadPageData() {
+  UI.showTableLoading('inventory-tbody');
+  try {
+    const cached = await OfflineSync.cacheGet('products');
+    if (cached) { allProducts = cached; renderInventoryStats(); filterInventory(); }
+    if (navigator.onLine) {
+      const [invData, histData] = await Promise.all([
+        API.getInventory(),
+        API.getAuditLogs({ type: 'STOCK_ADJUSTMENT', limit: 50 })
+      ]);
+      allProducts  = invData.products || [];
+      adjustHistory= histData.logs || [];
+      await OfflineSync.cacheSet('products', allProducts);
+      renderInventoryStats();
+      filterInventory();
+      populateAdjProductDropdown();
+      if (currentTab === 'history') renderHistory();
+    } else if (!cached) {
+      UI.showTableEmpty('inventory-tbody', 'No data available offline');
+    }
+  } catch (err) {
+    UI.showToast('error', 'Error', 'Could not load inventory.');
+    UI.showTableEmpty('inventory-tbody');
+  }
+}
+
+function renderInventoryStats() {
+  const low  = allProducts.filter(p => p.stockQty > 0 && p.stockQty < TEMS_CONFIG.LOW_STOCK_THRESHOLD).length;
+  const zero = allProducts.filter(p => !p.stockQty || p.stockQty <= 0).length;
+  const units= allProducts.reduce((s, p) => s + (p.stockQty || 0), 0);
+  document.getElementById('inv-total').textContent = allProducts.length;
+  document.getElementById('inv-low').textContent   = low;
+  document.getElementById('inv-zero').textContent  = zero;
+  document.getElementById('inv-units').textContent = units.toLocaleString();
+}
+
+function setTab(tab, btn) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('stock-panel').style.display   = tab !== 'history' ? 'block' : 'none';
+  document.getElementById('history-panel').style.display = tab === 'history' ? 'block' : 'none';
+  if (tab === 'history') renderHistory();
+  else filterInventory();
+}
+
+function filterInventory() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  let filtered = allProducts;
+  if (currentTab === 'low') filtered = filtered.filter(p => p.stockQty > 0 && p.stockQty < TEMS_CONFIG.LOW_STOCK_THRESHOLD);
+  else if (currentTab === 'out') filtered = filtered.filter(p => !p.stockQty || p.stockQty <= 0);
+  if (q) filtered = filtered.filter(p => p.name?.toLowerCase().includes(q) || p.code?.toLowerCase().includes(q));
+  currentPage = 1;
+  renderInventoryTable(filtered);
+}
+
+function renderInventoryTable(products) {
+  const tbody = document.getElementById('inventory-tbody');
+  if (!products.length) { UI.showTableEmpty('inventory-tbody'); return; }
+  const start = (currentPage - 1) * PER_PAGE;
+  const page  = products.slice(start, start + PER_PAGE);
+  tbody.innerHTML = page.map(p => {
+    const qty = p.stockQty || 0;
+    const isLow  = qty > 0 && qty < TEMS_CONFIG.LOW_STOCK_THRESHOLD;
+    const isZero = qty <= 0;
+    const barPct = Math.min(100, (qty / (TEMS_CONFIG.LOW_STOCK_THRESHOLD * 3)) * 100);
+    const barCls = isZero ? 'low' : isLow ? 'med' : '';
+    const statusBadge = isZero ? '<span class="badge badge-red">Out of Stock</span>'
+      : isLow ? '<span class="badge badge-amber">Low Stock</span>'
+      : '<span class="badge badge-green">In Stock</span>';
+    return `
+      <tr>
+        <td class="mono">${p.code || '—'}</td>
+        <td class="strong">${p.name}</td>
+        <td><span class="badge badge-muted">${p.category || '—'}</span></td>
+        <td>
+          <div class="stock-bar-wrap">
+            <span style="font-weight:600;color:${isZero ? 'var(--red)' : isLow ? 'var(--amber)' : 'var(--text-primary)'}">${qty}</span>
+            <div class="stock-bar"><div class="stock-bar-fill ${barCls}" style="width:${barPct}%"></div></div>
+          </div>
+        </td>
+        <td>${p.unit || 'kg'}</td>
+        <td>${TEMS_CONFIG.LOW_STOCK_THRESHOLD}</td>
+        <td>${statusBadge}</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="openAdjustModal('${p.id}')">⚖️ Adjust</button></td>
+      </tr>
+    `;
+  }).join('');
+  UI.buildPagination('pagination', products.length, currentPage, PER_PAGE, p => { currentPage = p; renderInventoryTable(products); });
+}
+
+function renderHistory() {
+  const tbody = document.getElementById('history-tbody');
+  if (!adjustHistory.length) { UI.showTableEmpty('history-tbody', 'No adjustments recorded'); return; }
+  tbody.innerHTML = adjustHistory.map(h => {
+    const typeColor = h.adjType === 'add' ? 'badge-green' : h.adjType === 'remove' ? 'badge-red' : 'badge-blue';
+    return `
+      <tr>
+        <td>${UI.formatDate(h.timestamp)}</td>
+        <td class="strong">${h.productName || '—'}</td>
+        <td><span class="badge ${typeColor}">${h.adjType || '—'}</span></td>
+        <td style="color:${h.adjType === 'add' ? 'var(--accent)' : 'var(--red)'}">${h.adjType === 'add' ? '+' : '-'}${h.qtyChange || 0}</td>
+        <td>${h.before ?? '—'}</td>
+        <td style="font-weight:600">${h.after ?? '—'}</td>
+        <td>${h.reason || '—'}</td>
+        <td>${h.userName || '—'}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function populateAdjProductDropdown() {
+  const sel = document.getElementById('adj-product');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Select product…</option>';
+  allProducts.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = `${p.name} (${p.stockQty || 0} ${p.unit || 'kg'})`;
+    if (p.id === current) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function openAdjustModal(productId = '') {
+  populateAdjProductDropdown();
+  document.getElementById('adj-product').value = productId;
+  document.getElementById('adj-type').value = 'add';
+  document.getElementById('adj-qty').value = '';
+  document.getElementById('adj-reason').value = '';
+  document.getElementById('adj-notes').value = '';
+  UI.openModal('adjust-modal');
+}
+
+async function saveAdjustment() {
+  const productId = document.getElementById('adj-product').value;
+  const type      = document.getElementById('adj-type').value;
+  const qty       = parseFloat(document.getElementById('adj-qty').value);
+  const reason    = document.getElementById('adj-reason').value;
+
+  if (!productId || !qty || !reason) {
+    UI.showToast('warning', 'Validation', 'Product, quantity and reason are required.');
+    return;
+  }
+
+  const user = Auth.getUser();
+  const payload = {
+    productId,
+    adjType: type,
+    quantity: qty,
+    reason,
+    notes: document.getElementById('adj-notes').value.trim(),
+    userId: user?.id,
+    userName: user?.fullName || user?.username
+  };
+
+  try {
+    await API.callWithFallback('adjustStock', payload, `Stock adjustment: ${type} ${qty}`);
+    UI.closeModal('adjust-modal');
+    UI.showToast('success', 'Stock Adjusted', `${type} ${qty} units applied.`);
+    loadPageData();
+  } catch (err) { UI.showToast('error', 'Save Failed', err.message); }
+}
+
+if (UI.initPage('inventory')) loadPageData();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js').catch(console.warn);
+</script>
+</body>
+</html>

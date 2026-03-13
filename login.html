@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — TEMS</title>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="icon" href="assets/icons/icon-192.png">
+</head>
+<body>
+<div class="login-page">
+  <div class="login-bg-decor"></div>
+
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="login-logo-icon">🌿</div>
+      <div class="login-logo-title">TEMS</div>
+      <div class="login-logo-sub">Tobacco Enterprise Management System</div>
+    </div>
+
+    <div class="login-form">
+      <div>
+        <div class="login-title">Welcome back</div>
+        <div class="login-sub">Sign in to access your workspace</div>
+      </div>
+
+      <div id="login-error" class="login-error">
+        ⚠️ <span id="login-error-msg">Invalid username or password.</span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="username">Username</label>
+        <input class="form-input" type="text" id="username" placeholder="e.g. admin" autocomplete="username">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="password">Password</label>
+        <input class="form-input" type="password" id="password" placeholder="••••••••" autocomplete="current-password">
+      </div>
+
+      <button class="btn btn-primary login-btn" id="login-btn">
+        <span id="login-btn-text">Sign In</span>
+        <div id="login-spinner" class="spinner" style="display:none;width:16px;height:16px;border-width:2px"></div>
+      </button>
+    </div>
+
+    <div style="margin-top:24px;text-align:center;font-size:0.75rem;color:var(--text-muted)">
+      TEMS v1.0 &nbsp;·&nbsp; Tobacco Enterprise Management
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast-container" id="toast-container"></div>
+
+<script src="js/config.js"></script>
+<script>
+// Minimal offline sync stub for login page
+const OfflineSync = {
+  getCachedCredentials: () => {
+    try { return JSON.parse(localStorage.getItem('tems_cred_cache') || '{}'); } catch { return {}; }
+  }
+};
+const hashPassword = (pwd) => {
+  let hash = 0;
+  for (let i = 0; i < pwd.length; i++) {
+    hash = ((hash << 5) - hash) + pwd.charCodeAt(i);
+    hash |= 0;
+  }
+  return hash.toString(36);
+};
+
+// Redirect if already logged in
+const token = localStorage.getItem(TEMS_CONFIG.TOKEN_KEY);
+const user  = (() => { try { return JSON.parse(localStorage.getItem(TEMS_CONFIG.USER_KEY)); } catch { return null; } })();
+if (token && user) window.location.href = 'dashboard.html';
+
+const showToast = (type, title, msg) => {
+  const c = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  const icons = { success:'✅', error:'❌', warning:'⚠️', info:'ℹ️' };
+  el.innerHTML = `<span class="toast-icon">${icons[type]||'ℹ️'}</span><div class="toast-body"><div class="toast-title">${title}</div><div class="toast-msg">${msg}</div></div>`;
+  c.appendChild(el);
+  setTimeout(() => { el.classList.add('removing'); setTimeout(() => el.remove(), 350); }, 4000);
+};
+
+const doLogin = async () => {
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const errEl    = document.getElementById('login-error');
+  const errMsg   = document.getElementById('login-error-msg');
+  const btn      = document.getElementById('login-btn');
+  const spinner  = document.getElementById('login-spinner');
+  const btnText  = document.getElementById('login-btn-text');
+
+  if (!username || !password) {
+    errMsg.textContent = 'Please enter username and password.';
+    errEl.classList.add('show');
+    return;
+  }
+
+  errEl.classList.remove('show');
+  btn.disabled = true;
+  btnText.textContent = 'Signing in…';
+  spinner.style.display = 'inline-block';
+
+  try {
+    const res = await fetch(`${TEMS_CONFIG.APPS_SCRIPT_URL}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'login', username, password })
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      localStorage.setItem(TEMS_CONFIG.TOKEN_KEY, data.token);
+      localStorage.setItem(TEMS_CONFIG.USER_KEY, JSON.stringify(data.user));
+      // Cache credentials for offline login
+      const cached = OfflineSync.getCachedCredentials();
+      cached[username] = { passwordHash: hashPassword(password), user: data.user };
+      localStorage.setItem('tems_cred_cache', JSON.stringify(cached));
+      window.location.href = 'dashboard.html';
+    } else {
+      errMsg.textContent = data.message || 'Invalid credentials.';
+      errEl.classList.add('show');
+    }
+  } catch (err) {
+    // Offline fallback
+    const cached = OfflineSync.getCachedCredentials();
+    if (cached[username] && cached[username].passwordHash === hashPassword(password)) {
+      localStorage.setItem(TEMS_CONFIG.TOKEN_KEY, 'offline_token');
+      localStorage.setItem(TEMS_CONFIG.USER_KEY, JSON.stringify(cached[username].user));
+      showToast('warning', 'Offline Mode', 'Logged in with cached credentials. Some features may be limited.');
+      setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
+    } else {
+      errMsg.textContent = 'Login failed. No internet connection and no cached credentials found.';
+      errEl.classList.add('show');
+    }
+  } finally {
+    btn.disabled = false;
+    btnText.textContent = 'Sign In';
+    spinner.style.display = 'none';
+  }
+};
+
+document.getElementById('login-btn').addEventListener('click', doLogin);
+document.getElementById('password').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') doLogin();
+});
+</script>
+</body>
+</html>

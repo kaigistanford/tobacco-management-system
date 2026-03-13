@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Purchases — TEMS</title>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="icon" href="assets/icons/icon-192.png">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebar-container"></div>
+  <div class="main-content">
+    <div id="header-container"></div>
+    <div class="page-content">
+      <div id="offline-banner-container"></div>
+
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Purchases</h1>
+          <p class="page-subtitle">Record supplier purchases and update inventory</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-primary" onclick="openPurchaseModal()">＋ New Purchase</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Purchase Records</span>
+          <div style="display:flex;gap:8px">
+            <div class="toolbar-search" style="margin:0">
+              <span>🔍</span>
+              <input type="text" id="search-input" placeholder="Search…" oninput="filterPurchases()">
+            </div>
+            <input type="month" class="form-input" id="month-filter" style="width:150px;padding:7px" onchange="filterPurchases()">
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Purchase No.</th><th>Supplier</th><th>Date</th>
+              <th>Items</th><th>Total (TZS)</th><th>Status</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="purchases-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="pagination"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- New Purchase Modal -->
+<div class="modal-overlay" id="purchase-modal">
+  <div class="modal" style="max-width:760px">
+    <div class="modal-header">
+      <h2 class="modal-title" id="purchase-modal-title">New Purchase</h2>
+      <button class="modal-close" data-close-modal="purchase-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid" style="margin-bottom:16px">
+        <div class="form-group">
+          <label class="form-label">Supplier *</label>
+          <select class="form-input" id="purchase-supplier">
+            <option value="">Select supplier…</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Purchase Date *</label>
+          <input class="form-input" type="date" id="purchase-date">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Invoice / Ref No.</label>
+          <input class="form-input" type="text" id="purchase-ref" placeholder="INV-0001">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Status</label>
+          <select class="form-input" id="purchase-status">
+            <option value="pending">Pending</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="received">Received</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+      <div style="font-family:var(--font-display);font-size:0.88rem;font-weight:700;margin-bottom:10px;color:var(--text-primary)">
+        📦 Purchase Items
+      </div>
+
+      <div class="items-list" id="purchase-items-list"></div>
+      <button class="add-item-btn" onclick="addPurchaseItem()">＋ Add Item</button>
+
+      <div class="purchase-total" id="purchase-total-display">Total: TZS 0</div>
+
+      <div class="form-group full" style="margin-top:16px">
+        <label class="form-label">Notes</label>
+        <textarea class="form-input" id="purchase-notes" placeholder="Optional notes…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-close-modal="purchase-modal">Cancel</button>
+      <button class="btn btn-primary" onclick="savePurchase()">💾 Save Purchase</button>
+    </div>
+  </div>
+</div>
+
+<!-- View Purchase Modal -->
+<div class="modal-overlay" id="view-purchase-modal">
+  <div class="modal" style="max-width:680px">
+    <div class="modal-header">
+      <h2 class="modal-title" id="view-purchase-title">Purchase Details</h2>
+      <button class="modal-close" data-close-modal="view-purchase-modal">✕</button>
+    </div>
+    <div class="modal-body" id="view-purchase-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-close-modal="view-purchase-modal">Close</button>
+      <button class="btn btn-primary" onclick="window.print()">🖨️ Print</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+<script src="js/config.js"></script>
+<script src="js/offline-sync.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+<script>
+document.getElementById('sidebar-container').innerHTML = AppTemplate.getSidebarHTML();
+document.getElementById('header-container').innerHTML = AppTemplate.getHeaderHTML('Purchases', 'Operations › Purchases');
+document.getElementById('offline-banner-container').innerHTML = AppTemplate.getOfflineBanner();
+
+let allPurchases = [], allProducts = [], allSuppliers = [];
+let currentPage = 1;
+const PER_PAGE = TEMS_CONFIG.ROWS_PER_PAGE;
+let purchaseItems = []; // items in the modal
+
+// Set default date
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('purchase-date').value = new Date().toISOString().split('T')[0];
+});
+
+async function loadPageData() {
+  UI.showTableLoading('purchases-tbody');
+  try {
+    const [pd, prods, sups] = await Promise.all([
+      navigator.onLine ? API.getPurchases() : OfflineSync.cacheGet('purchases').then(c => ({ purchases: c || [] })),
+      navigator.onLine ? API.getProducts()  : OfflineSync.cacheGet('products').then(c => ({ products: c || [] })),
+      navigator.onLine ? API.getSuppliers() : OfflineSync.cacheGet('suppliers').then(c => ({ suppliers: c || [] }))
+    ]);
+    allPurchases = pd.purchases || [];
+    allProducts  = prods.products || [];
+    allSuppliers = sups.suppliers || [];
+    if (navigator.onLine) {
+      await OfflineSync.cacheSet('purchases', allPurchases);
+    }
+    populateSupplierDropdown();
+    filterPurchases();
+  } catch (err) {
+    UI.showToast('error', 'Error', 'Could not load purchases.');
+    UI.showTableEmpty('purchases-tbody');
+  }
+}
+
+function populateSupplierDropdown() {
+  const sel = document.getElementById('purchase-supplier');
+  sel.innerHTML = '<option value="">Select supplier…</option>';
+  allSuppliers.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.id; opt.textContent = s.name;
+    sel.appendChild(opt);
+  });
+}
+
+function filterPurchases() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  const m = document.getElementById('month-filter').value;
+  const filtered = allPurchases.filter(p =>
+    (!q || p.purchaseNo?.toLowerCase().includes(q) || p.supplierName?.toLowerCase().includes(q)) &&
+    (!m || p.purchaseDate?.startsWith(m))
+  );
+  currentPage = 1;
+  renderPurchases(filtered);
+}
+
+function renderPurchases(purchases) {
+  const tbody = document.getElementById('purchases-tbody');
+  if (!purchases.length) { UI.showTableEmpty('purchases-tbody'); return; }
+  const start = (currentPage - 1) * PER_PAGE;
+  const page  = purchases.slice(start, start + PER_PAGE);
+  const statusColors = { pending: 'badge-amber', confirmed: 'badge-blue', received: 'badge-green' };
+  tbody.innerHTML = page.map(p => `
+    <tr>
+      <td class="mono">${p.purchaseNo || p.id?.slice(0,8)}</td>
+      <td class="strong">${p.supplierName || '—'}</td>
+      <td>${UI.formatDate(p.purchaseDate)}</td>
+      <td>${p.itemCount || (p.items?.length ?? '—')}</td>
+      <td class="strong">${UI.formatCurrency(p.totalAmount)}</td>
+      <td><span class="badge ${statusColors[p.status] || 'badge-muted'}">${p.status || 'pending'}</span></td>
+      <td>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" onclick='viewPurchase(${JSON.stringify(p).replace(/'/g,"&#39;")})'>👁️</button>
+          <button class="btn btn-danger btn-sm" onclick="deletePurchase('${p.id}','${p.purchaseNo || p.id}')">🗑️</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+  UI.buildPagination('pagination', purchases.length, currentPage, PER_PAGE, p => { currentPage = p; renderPurchases(purchases); });
+}
+
+function openPurchaseModal() {
+  purchaseItems = [];
+  document.getElementById('purchase-supplier').value = '';
+  document.getElementById('purchase-date').value = new Date().toISOString().split('T')[0];
+  document.getElementById('purchase-ref').value = '';
+  document.getElementById('purchase-status').value = 'pending';
+  document.getElementById('purchase-notes').value = '';
+  renderPurchaseItems();
+  addPurchaseItem();
+  UI.openModal('purchase-modal');
+}
+
+function addPurchaseItem() {
+  purchaseItems.push({ productId: '', qty: 1, unitPrice: 0 });
+  renderPurchaseItems();
+}
+
+function removePurchaseItem(idx) {
+  purchaseItems.splice(idx, 1);
+  renderPurchaseItems();
+}
+
+function renderPurchaseItems() {
+  const list = document.getElementById('purchase-items-list');
+  list.innerHTML = purchaseItems.map((item, i) => `
+    <div class="item-row" id="item-row-${i}">
+      <div class="form-group" style="margin:0">
+        <select class="form-input" onchange="onItemProductChange(${i},this.value)">
+          <option value="">Select product…</option>
+          ${allProducts.map(p => `<option value="${p.id}" data-price="${p.unitPrice}" ${p.id === item.productId ? 'selected' : ''}>${p.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group" style="margin:0">
+        <input class="form-input" type="number" min="1" value="${item.qty}" placeholder="Qty" oninput="onItemQtyChange(${i},this.value)">
+      </div>
+      <div class="form-group" style="margin:0">
+        <input class="form-input" type="number" min="0" value="${item.unitPrice}" placeholder="Unit Price" oninput="onItemPriceChange(${i},this.value)">
+      </div>
+      <div class="item-total">${UI.formatCurrency(item.qty * item.unitPrice)}</div>
+      <button class="btn btn-danger btn-sm btn-icon" onclick="removePurchaseItem(${i})" style="margin-bottom:10px">✕</button>
+    </div>
+  `).join('');
+  updatePurchaseTotal();
+}
+
+function onItemProductChange(i, productId) {
+  purchaseItems[i].productId = productId;
+  const prod = allProducts.find(p => p.id === productId);
+  if (prod) purchaseItems[i].unitPrice = prod.unitPrice;
+  renderPurchaseItems();
+}
+
+function onItemQtyChange(i, v) {
+  purchaseItems[i].qty = parseFloat(v) || 0;
+  updatePurchaseTotal();
+}
+
+function onItemPriceChange(i, v) {
+  purchaseItems[i].unitPrice = parseFloat(v) || 0;
+  updatePurchaseTotal();
+}
+
+function updatePurchaseTotal() {
+  const total = purchaseItems.reduce((s, i) => s + (i.qty * i.unitPrice), 0);
+  document.getElementById('purchase-total-display').textContent = `Total: ${UI.formatCurrency(total)}`;
+}
+
+async function savePurchase() {
+  const supplierId = document.getElementById('purchase-supplier').value;
+  const date       = document.getElementById('purchase-date').value;
+  if (!supplierId || !date) { UI.showToast('warning', 'Validation', 'Supplier and date are required.'); return; }
+  if (!purchaseItems.length || !purchaseItems.some(i => i.productId)) {
+    UI.showToast('warning', 'Validation', 'Add at least one item.'); return;
+  }
+  const validItems = purchaseItems.filter(i => i.productId && i.qty > 0);
+  if (!validItems.length) { UI.showToast('warning', 'Validation', 'Each item needs a product and quantity.'); return; }
+
+  const payload = {
+    supplierId,
+    supplierName: allSuppliers.find(s => s.id === supplierId)?.name || '',
+    purchaseDate: date,
+    refNo:        document.getElementById('purchase-ref').value.trim(),
+    status:       document.getElementById('purchase-status').value,
+    notes:        document.getElementById('purchase-notes').value.trim(),
+    items:        validItems,
+    totalAmount:  validItems.reduce((s, i) => s + (i.qty * i.unitPrice), 0)
+  };
+
+  try {
+    await API.callWithFallback('createPurchase', payload, 'Create purchase');
+    UI.closeModal('purchase-modal');
+    UI.showToast('success', 'Purchase Saved', 'Inventory updated.');
+    loadPageData();
+  } catch (err) { UI.showToast('error', 'Save Failed', err.message); }
+}
+
+function viewPurchase(p) {
+  document.getElementById('view-purchase-title').textContent = `Purchase: ${p.purchaseNo || p.id?.slice(0,8)}`;
+  const items = (p.items || []).map(it => `
+    <tr>
+      <td>${it.productName || it.productId}</td>
+      <td>${it.qty} ${it.unit || 'kg'}</td>
+      <td>${UI.formatCurrency(it.unitPrice)}</td>
+      <td>${UI.formatCurrency(it.qty * it.unitPrice)}</td>
+    </tr>
+  `).join('');
+  document.getElementById('view-purchase-body').innerHTML = `
+    <div class="form-grid" style="margin-bottom:16px">
+      <div class="form-group"><label class="form-label">Supplier</label><div style="color:var(--text-primary);font-weight:600">${p.supplierName||'—'}</div></div>
+      <div class="form-group"><label class="form-label">Date</label><div>${UI.formatDate(p.purchaseDate)}</div></div>
+      <div class="form-group"><label class="form-label">Ref No.</label><div class="mono">${p.refNo||'—'}</div></div>
+      <div class="form-group"><label class="form-label">Status</label><span class="badge badge-blue">${p.status||'pending'}</span></div>
+    </div>
+    <div class="divider"></div>
+    <table style="margin-bottom:12px">
+      <thead><tr><th>Product</th><th>Qty</th><th>Unit Price</th><th>Subtotal</th></tr></thead>
+      <tbody>${items || '<tr><td colspan="4"><div class="empty-state" style="padding:16px"><div class="empty-title">No items</div></div></td></tr>'}</tbody>
+    </table>
+    <div class="purchase-total">Grand Total: ${UI.formatCurrency(p.totalAmount)}</div>
+    ${p.notes ? `<div style="margin-top:12px;color:var(--text-secondary);font-size:0.83rem">📝 ${p.notes}</div>` : ''}
+  `;
+  UI.openModal('view-purchase-modal');
+}
+
+function deletePurchase(id, no) {
+  UI.confirm(`Delete purchase "${no}"?`, async () => {
+    try {
+      await API.callWithFallback('deletePurchase', { id }, `Delete purchase: ${no}`);
+      UI.showToast('success', 'Deleted', 'Purchase removed.');
+      loadPageData();
+    } catch (err) { UI.showToast('error', 'Delete Failed', err.message); }
+  }, { title: 'Delete Purchase', danger: true });
+}
+
+if (UI.initPage('purchases')) loadPageData();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js').catch(console.warn);
+</script>
+</body>
+</html>

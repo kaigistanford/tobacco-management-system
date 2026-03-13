@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sales — TEMS</title>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="icon" href="assets/icons/icon-192.png">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebar-container"></div>
+  <div class="main-content">
+    <div id="header-container"></div>
+    <div class="page-content">
+      <div id="offline-banner-container"></div>
+
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Sales</h1>
+          <p class="page-subtitle">Record tobacco sales and manage transactions</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-primary" onclick="openSaleModal()">＋ New Sale</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Sales Records</span>
+          <div style="display:flex;gap:8px">
+            <div class="toolbar-search" style="margin:0">
+              <span>🔍</span>
+              <input type="text" id="search-input" placeholder="Search receipts…" oninput="filterSales()">
+            </div>
+            <input type="month" class="form-input" id="month-filter" style="width:150px;padding:7px" onchange="filterSales()">
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Receipt No.</th><th>Date</th><th>Staff</th>
+              <th>Items</th><th>Total (TZS)</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="sales-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="pagination"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- New Sale Modal -->
+<div class="modal-overlay" id="sale-modal">
+  <div class="modal" style="max-width:760px">
+    <div class="modal-header">
+      <h2 class="modal-title">New Sale</h2>
+      <button class="modal-close" data-close-modal="sale-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid" style="margin-bottom:16px">
+        <div class="form-group">
+          <label class="form-label">Sale Date *</label>
+          <input class="form-input" type="date" id="sale-date">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Customer Name</label>
+          <input class="form-input" type="text" id="sale-customer" placeholder="Optional customer name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Payment Method</label>
+          <select class="form-input" id="sale-payment">
+            <option value="cash">Cash</option>
+            <option value="bank_transfer">Bank Transfer</option>
+            <option value="mobile_money">Mobile Money (M-Pesa)</option>
+            <option value="cheque">Cheque</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes</label>
+          <input class="form-input" type="text" id="sale-notes" placeholder="Optional notes">
+        </div>
+      </div>
+
+      <div class="divider"></div>
+      <div style="font-family:var(--font-display);font-size:0.88rem;font-weight:700;margin-bottom:10px;color:var(--text-primary)">
+        🛒 Sale Items
+      </div>
+
+      <div class="items-list" id="sale-items-list"></div>
+      <button class="add-item-btn" onclick="addSaleItem()">＋ Add Item</button>
+
+      <div class="purchase-total" id="sale-total-display">Total: TZS 0</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-close-modal="sale-modal">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSale()">💳 Record Sale</button>
+    </div>
+  </div>
+</div>
+
+<!-- Receipt Modal -->
+<div class="modal-overlay" id="receipt-modal">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <h2 class="modal-title">🧾 Sales Receipt</h2>
+      <button class="modal-close" data-close-modal="receipt-modal">✕</button>
+    </div>
+    <div class="modal-body" id="receipt-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-close-modal="receipt-modal">Close</button>
+      <button class="btn btn-primary" onclick="window.print()">🖨️ Print Receipt</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+<script src="js/config.js"></script>
+<script src="js/offline-sync.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+<script>
+document.getElementById('sidebar-container').innerHTML = AppTemplate.getSidebarHTML();
+document.getElementById('header-container').innerHTML = AppTemplate.getHeaderHTML('Sales', 'Operations › Sales');
+document.getElementById('offline-banner-container').innerHTML = AppTemplate.getOfflineBanner();
+
+let allSales = [], allProducts = [];
+let currentPage = 1;
+const PER_PAGE = TEMS_CONFIG.ROWS_PER_PAGE;
+let saleItems = [];
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('sale-date').value = new Date().toISOString().split('T')[0];
+});
+
+async function loadPageData() {
+  UI.showTableLoading('sales-tbody');
+  try {
+    const [sd, pd] = await Promise.all([
+      navigator.onLine ? API.getSales() : OfflineSync.cacheGet('sales').then(c => ({ sales: c || [] })),
+      navigator.onLine ? API.getProducts() : OfflineSync.cacheGet('products').then(c => ({ products: c || [] }))
+    ]);
+    allSales    = sd.sales || [];
+    allProducts = pd.products || [];
+    if (navigator.onLine) await OfflineSync.cacheSet('sales', allSales);
+    filterSales();
+  } catch (err) {
+    UI.showToast('error', 'Error', 'Could not load sales data.');
+    UI.showTableEmpty('sales-tbody');
+  }
+}
+
+function filterSales() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  const m = document.getElementById('month-filter').value;
+  const filtered = allSales.filter(s =>
+    (!q || s.receiptNo?.toLowerCase().includes(q) || s.customer?.toLowerCase().includes(q)) &&
+    (!m || s.saleDate?.startsWith(m))
+  );
+  currentPage = 1;
+  renderSales(filtered);
+}
+
+function renderSales(sales) {
+  const tbody = document.getElementById('sales-tbody');
+  if (!sales.length) { UI.showTableEmpty('sales-tbody'); return; }
+  const start = (currentPage - 1) * PER_PAGE;
+  const page  = sales.slice(start, start + PER_PAGE);
+  const user  = Auth.getUser();
+  tbody.innerHTML = page.map(s => `
+    <tr>
+      <td class="mono">${s.receiptNo || s.id?.slice(0,8)}</td>
+      <td>${UI.formatDate(s.saleDate)}</td>
+      <td>${s.staffName || user?.fullName || '—'}</td>
+      <td>${s.itemCount || s.items?.length || '—'}</td>
+      <td class="strong">${UI.formatCurrency(s.totalAmount)}</td>
+      <td>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" onclick='viewReceipt(${JSON.stringify(s).replace(/'/g,"&#39;")})'>🧾</button>
+          ${Auth.isAdmin() ? `<button class="btn btn-danger btn-sm" onclick="deleteSale('${s.id}','${s.receiptNo||s.id}')">🗑️</button>` : ''}
+        </div>
+      </td>
+    </tr>
+  `).join('');
+  UI.buildPagination('pagination', sales.length, currentPage, PER_PAGE, p => { currentPage = p; renderSales(sales); });
+}
+
+function openSaleModal() {
+  saleItems = [];
+  document.getElementById('sale-date').value = new Date().toISOString().split('T')[0];
+  document.getElementById('sale-customer').value = '';
+  document.getElementById('sale-payment').value = 'cash';
+  document.getElementById('sale-notes').value = '';
+  renderSaleItems();
+  addSaleItem();
+  UI.openModal('sale-modal');
+}
+
+function addSaleItem() {
+  saleItems.push({ productId: '', qty: 1, unitPrice: 0, availableStock: 0 });
+  renderSaleItems();
+}
+
+function removeSaleItem(idx) {
+  saleItems.splice(idx, 1);
+  renderSaleItems();
+}
+
+function renderSaleItems() {
+  const list = document.getElementById('sale-items-list');
+  list.innerHTML = saleItems.map((item, i) => {
+    const stockWarn = item.productId && item.qty > item.availableStock
+      ? `<div style="font-size:0.72rem;color:var(--red);margin-top:2px">⚠️ Only ${item.availableStock} in stock</div>` : '';
+    return `
+      <div class="item-row">
+        <div class="form-group" style="margin:0">
+          <select class="form-input" onchange="onSaleProductChange(${i},this.value)">
+            <option value="">Select product…</option>
+            ${allProducts.map(p => `<option value="${p.id}" data-price="${p.unitPrice}" data-stock="${p.stockQty}" ${p.id === item.productId ? 'selected' : ''}>${p.name} (${p.stockQty ?? 0} ${p.unit||'kg'})</option>`).join('')}
+          </select>
+          ${stockWarn}
+        </div>
+        <div class="form-group" style="margin:0">
+          <input class="form-input" type="number" min="1" max="${item.availableStock||99999}" value="${item.qty}" oninput="onSaleQtyChange(${i},this.value)">
+        </div>
+        <div class="form-group" style="margin:0">
+          <input class="form-input" type="number" min="0" value="${item.unitPrice}" oninput="onSalePriceChange(${i},this.value)">
+        </div>
+        <div class="item-total">${UI.formatCurrency(item.qty * item.unitPrice)}</div>
+        <button class="btn btn-danger btn-sm btn-icon" onclick="removeSaleItem(${i})" style="margin-bottom:10px">✕</button>
+      </div>
+    `;
+  }).join('');
+  updateSaleTotal();
+}
+
+function onSaleProductChange(i, productId) {
+  saleItems[i].productId = productId;
+  const prod = allProducts.find(p => p.id === productId);
+  if (prod) {
+    saleItems[i].unitPrice = prod.unitPrice;
+    saleItems[i].availableStock = prod.stockQty || 0;
+    saleItems[i].productName = prod.name;
+    saleItems[i].unit = prod.unit || 'kg';
+  }
+  renderSaleItems();
+}
+
+function onSaleQtyChange(i, v) { saleItems[i].qty = parseFloat(v) || 0; updateSaleTotal(); document.querySelectorAll('.item-total')[i].textContent = UI.formatCurrency(saleItems[i].qty * saleItems[i].unitPrice); }
+function onSalePriceChange(i, v) { saleItems[i].unitPrice = parseFloat(v) || 0; updateSaleTotal(); }
+
+function updateSaleTotal() {
+  const total = saleItems.reduce((s, i) => s + (i.qty * i.unitPrice), 0);
+  document.getElementById('sale-total-display').textContent = `Total: ${UI.formatCurrency(total)}`;
+}
+
+async function saveSale() {
+  const date = document.getElementById('sale-date').value;
+  if (!date) { UI.showToast('warning', 'Validation', 'Sale date is required.'); return; }
+
+  const validItems = saleItems.filter(i => i.productId && i.qty > 0);
+  if (!validItems.length) { UI.showToast('warning', 'Validation', 'Add at least one item.'); return; }
+
+  // Check stock
+  for (const item of validItems) {
+    if (item.qty > item.availableStock) {
+      UI.showToast('error', 'Insufficient Stock', `Not enough stock for ${item.productName}. Available: ${item.availableStock}.`);
+      return;
+    }
+  }
+
+  const user = Auth.getUser();
+  const payload = {
+    saleDate:    date,
+    customer:    document.getElementById('sale-customer').value.trim(),
+    payment:     document.getElementById('sale-payment').value,
+    notes:       document.getElementById('sale-notes').value.trim(),
+    staffId:     user?.id,
+    staffName:   user?.fullName || user?.username,
+    items:       validItems,
+    totalAmount: validItems.reduce((s, i) => s + (i.qty * i.unitPrice), 0)
+  };
+
+  try {
+    const res = await API.callWithFallback('createSale', payload, 'Record sale');
+    UI.closeModal('sale-modal');
+    UI.showToast('success', 'Sale Recorded', UI.formatCurrency(payload.totalAmount));
+    // Update local product stock
+    validItems.forEach(item => {
+      const prod = allProducts.find(p => p.id === item.productId);
+      if (prod) prod.stockQty = Math.max(0, (prod.stockQty || 0) - item.qty);
+    });
+    loadPageData();
+  } catch (err) { UI.showToast('error', 'Save Failed', err.message); }
+}
+
+function viewReceipt(s) {
+  const items = (s.items || []).map(i => `
+    <tr>
+      <td>${i.productName || i.productId}</td>
+      <td style="text-align:center">${i.qty} ${i.unit||'kg'}</td>
+      <td style="text-align:right">${UI.formatCurrency(i.unitPrice)}</td>
+      <td style="text-align:right">${UI.formatCurrency(i.qty * i.unitPrice)}</td>
+    </tr>
+  `).join('');
+
+  document.getElementById('receipt-body').innerHTML = `
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="font-family:var(--font-display);font-size:1.1rem;font-weight:800;color:var(--accent)">🌿 TEMS</div>
+      <div style="font-size:0.78rem;color:var(--text-muted)">Tobacco Enterprise Management System</div>
+      <div class="divider" style="margin:12px 0"></div>
+      <div style="font-size:0.82rem;color:var(--text-secondary)">Receipt No.: <strong style="color:var(--text-primary)">${s.receiptNo || s.id?.slice(0,8)}</strong></div>
+      <div style="font-size:0.82rem;color:var(--text-secondary)">Date: ${UI.formatDate(s.saleDate)} | Staff: ${s.staffName || '—'}</div>
+      ${s.customer ? `<div style="font-size:0.82rem;color:var(--text-secondary)">Customer: ${s.customer}</div>` : ''}
+    </div>
+    <table>
+      <thead><tr><th>Item</th><th>Qty</th><th style="text-align:right">Price</th><th style="text-align:right">Total</th></tr></thead>
+      <tbody>${items}</tbody>
+    </table>
+    <div class="divider" style="margin:12px 0"></div>
+    <div style="display:flex;justify-content:space-between;font-family:var(--font-display);font-size:1rem;font-weight:700">
+      <span>GRAND TOTAL</span>
+      <span style="color:var(--accent)">${UI.formatCurrency(s.totalAmount)}</span>
+    </div>
+    <div style="margin-top:8px;font-size:0.78rem;color:var(--text-muted)">Payment: ${s.payment || 'cash'}</div>
+    ${s.notes ? `<div style="margin-top:8px;font-size:0.78rem;color:var(--text-muted)">Note: ${s.notes}</div>` : ''}
+    <div class="divider" style="margin:12px 0"></div>
+    <div style="text-align:center;font-size:0.72rem;color:var(--text-muted)">Thank you for your business.</div>
+  `;
+  UI.openModal('receipt-modal');
+}
+
+function deleteSale(id, no) {
+  UI.confirm(`Delete sale "${no}"?`, async () => {
+    try {
+      await API.callWithFallback('deleteSale', { id }, `Delete sale: ${no}`);
+      UI.showToast('success', 'Deleted', 'Sale removed.');
+      loadPageData();
+    } catch (err) { UI.showToast('error', 'Delete Failed', err.message); }
+  }, { title: 'Delete Sale', danger: true });
+}
+
+if (UI.initPage('sales')) loadPageData();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js').catch(console.warn);
+</script>
+</body>
+</html>

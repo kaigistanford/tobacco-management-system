@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Products — TEMS</title>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="icon" href="assets/icons/icon-192.png">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebar-container"></div>
+  <div class="main-content">
+    <div id="header-container"></div>
+    <div class="page-content">
+      <div id="offline-banner-container"></div>
+
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Products</h1>
+          <p class="page-subtitle">Manage tobacco product catalogue and pricing</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-primary" onclick="openProductModal()">＋ Add Product</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Product List</span>
+          <div style="display:flex;gap:8px">
+            <div class="toolbar-search" style="margin:0">
+              <span>🔍</span>
+              <input type="text" id="search-input" placeholder="Search products…" oninput="filterProducts()">
+            </div>
+            <select class="form-input" id="category-filter" onchange="filterProducts()" style="width:140px;padding:7px 10px">
+              <option value="">All Categories</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Code</th><th>Name</th><th>Category</th><th>Unit Price</th>
+              <th>Stock</th><th>Status</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="products-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="pagination"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Product Modal -->
+<div class="modal-overlay" id="product-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 class="modal-title" id="product-modal-title">Add Product</h2>
+      <button class="modal-close" data-close-modal="product-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="product-id">
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Product Code</label>
+          <input class="form-input" type="text" id="product-code" placeholder="e.g. TBC-001">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Product Name *</label>
+          <input class="form-input" type="text" id="product-name" placeholder="e.g. Virginia Flue-Cured">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Category *</label>
+          <select class="form-input" id="product-category">
+            <option value="">Select category</option>
+            <option>Flue-Cured</option>
+            <option>Burley</option>
+            <option>Oriental</option>
+            <option>Dark Air-Cured</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Unit (e.g. kg, bale)</label>
+          <input class="form-input" type="text" id="product-unit" placeholder="kg">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Unit Price (TZS) *</label>
+          <input class="form-input" type="number" id="product-price" min="0" placeholder="0">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Initial Stock Qty</label>
+          <input class="form-input" type="number" id="product-stock" min="0" placeholder="0">
+        </div>
+        <div class="form-group full">
+          <label class="form-label">Description</label>
+          <textarea class="form-input" id="product-desc" placeholder="Optional description…"></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-close-modal="product-modal">Cancel</button>
+      <button class="btn btn-primary" id="save-product-btn" onclick="saveProduct()">Save Product</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<script src="js/config.js"></script>
+<script src="js/offline-sync.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+<script>
+document.getElementById('sidebar-container').innerHTML = AppTemplate.getSidebarHTML();
+document.getElementById('header-container').innerHTML = AppTemplate.getHeaderHTML('Products', 'Operations › Products');
+document.getElementById('offline-banner-container').innerHTML = AppTemplate.getOfflineBanner();
+
+let allProducts = [];
+let currentPage = 1;
+const PER_PAGE = TEMS_CONFIG.ROWS_PER_PAGE;
+
+async function loadPageData() {
+  UI.showTableLoading('products-tbody');
+  try {
+    const cached = await OfflineSync.cacheGet('products');
+    if (cached) renderProducts(cached);
+    if (navigator.onLine) {
+      const data = await API.getProducts();
+      allProducts = data.products || [];
+      await OfflineSync.cacheSet('products', allProducts);
+      populateCategoryFilter();
+      filterProducts();
+    } else if (cached) {
+      allProducts = cached;
+      populateCategoryFilter();
+      filterProducts();
+    } else {
+      UI.showTableEmpty('products-tbody', 'No products found');
+    }
+  } catch (err) {
+    console.error(err);
+    UI.showToast('error', 'Error', 'Could not load products.');
+    UI.showTableEmpty('products-tbody', 'Failed to load products');
+  }
+}
+
+function populateCategoryFilter() {
+  const sel = document.getElementById('category-filter');
+  const cats = [...new Set(allProducts.map(p => p.category).filter(Boolean))];
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All Categories</option>';
+  cats.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c; opt.textContent = c;
+    if (c === current) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function filterProducts() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  const cat = document.getElementById('category-filter').value;
+  const filtered = allProducts.filter(p =>
+    (!q || p.name?.toLowerCase().includes(q) || p.code?.toLowerCase().includes(q)) &&
+    (!cat || p.category === cat)
+  );
+  currentPage = 1;
+  renderProducts(filtered);
+}
+
+function renderProducts(products) {
+  const tbody = document.getElementById('products-tbody');
+  if (!products || products.length === 0) { UI.showTableEmpty('products-tbody'); return; }
+
+  const start = (currentPage - 1) * PER_PAGE;
+  const page  = products.slice(start, start + PER_PAGE);
+
+  tbody.innerHTML = page.map(p => {
+    const isLow = (p.stockQty || 0) < TEMS_CONFIG.LOW_STOCK_THRESHOLD;
+    const stockBadge = isLow
+      ? `<span class="badge badge-red">Low</span>`
+      : `<span class="badge badge-green">OK</span>`;
+    const statusBadge = p.active !== false
+      ? `<span class="badge badge-green">Active</span>`
+      : `<span class="badge badge-muted">Inactive</span>`;
+    return `
+      <tr>
+        <td class="mono">${p.code || '—'}</td>
+        <td class="strong">${p.name}</td>
+        <td><span class="badge badge-muted">${p.category || '—'}</span></td>
+        <td>${UI.formatCurrency(p.unitPrice)}</td>
+        <td>
+          <div class="stock-bar-wrap">
+            <span>${p.stockQty ?? 0} ${p.unit || 'kg'}</span>
+            <div class="stock-bar"><div class="stock-bar-fill ${isLow ? 'low' : ''}" style="width:${Math.min(100,(p.stockQty||0)/5)}%"></div></div>
+          </div>
+        </td>
+        <td>${statusBadge} ${isLow ? stockBadge : ''}</td>
+        <td>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-secondary btn-sm" onclick="openProductModal(${JSON.stringify(p).replace(/"/g,'&quot;')})">✏️</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteProduct('${p.id}','${p.name}')">🗑️</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  UI.buildPagination('pagination', products.length, currentPage, PER_PAGE, (p) => {
+    currentPage = p;
+    renderProducts(products);
+  });
+}
+
+function openProductModal(product = null) {
+  document.getElementById('product-id').value = product?.id || '';
+  document.getElementById('product-code').value = product?.code || '';
+  document.getElementById('product-name').value = product?.name || '';
+  document.getElementById('product-category').value = product?.category || '';
+  document.getElementById('product-unit').value = product?.unit || 'kg';
+  document.getElementById('product-price').value = product?.unitPrice || '';
+  document.getElementById('product-stock').value = product?.stockQty || '';
+  document.getElementById('product-desc').value = product?.description || '';
+  document.getElementById('product-modal-title').textContent = product ? 'Edit Product' : 'Add Product';
+  UI.openModal('product-modal');
+}
+
+async function saveProduct() {
+  const id    = document.getElementById('product-id').value;
+  const name  = document.getElementById('product-name').value.trim();
+  const price = document.getElementById('product-price').value;
+  const cat   = document.getElementById('product-category').value;
+
+  if (!name || !price || !cat) {
+    UI.showToast('warning', 'Validation', 'Name, category and price are required.');
+    return;
+  }
+
+  const payload = {
+    id:          id || undefined,
+    code:        document.getElementById('product-code').value.trim(),
+    name,
+    category:    cat,
+    unit:        document.getElementById('product-unit').value.trim() || 'kg',
+    unitPrice:   parseFloat(price),
+    stockQty:    parseInt(document.getElementById('product-stock').value) || 0,
+    description: document.getElementById('product-desc').value.trim(),
+    active:      true
+  };
+
+  const btn = document.getElementById('save-product-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  try {
+    const action = id ? 'updateProduct' : 'createProduct';
+    const res = await API.callWithFallback(action, payload, `${id ? 'Update' : 'Create'} product: ${name}`);
+    UI.closeModal('product-modal');
+    UI.showToast('success', id ? 'Product Updated' : 'Product Created', name);
+    loadPageData();
+  } catch (err) {
+    UI.showToast('error', 'Save Failed', err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save Product';
+  }
+}
+
+function deleteProduct(id, name) {
+  UI.confirm(`Are you sure you want to delete "${name}"? This cannot be undone.`, async () => {
+    try {
+      await API.callWithFallback('deleteProduct', { id }, `Delete product: ${name}`);
+      UI.showToast('success', 'Deleted', `${name} removed.`);
+      loadPageData();
+    } catch (err) {
+      UI.showToast('error', 'Delete Failed', err.message);
+    }
+  }, { title: 'Delete Product', danger: true });
+}
+
+if (UI.initPage('products')) loadPageData();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js').catch(console.warn);
+</script>
+</body>
+</html>

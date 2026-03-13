@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — TEMS</title>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="icon" href="assets/icons/icon-192.png">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="app-layout" id="app-layout">
+  <!-- Sidebar injected by JS -->
+  <div id="sidebar-container"></div>
+
+  <div class="main-content">
+    <!-- Header injected by JS -->
+    <div id="header-container"></div>
+
+    <div class="page-content">
+      <div id="offline-banner-container"></div>
+      <div id="install-banner-container"></div>
+
+      <!-- Page header -->
+      <div class="page-header">
+        <div class="page-header-left">
+          <h1 class="page-title">Dashboard</h1>
+          <p class="page-subtitle">Welcome back. Here's your enterprise overview.</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-secondary btn-sm" onclick="loadDashboard()">🔄 Refresh</button>
+        </div>
+      </div>
+
+      <!-- Stat Cards -->
+      <div class="stats-grid" id="stats-grid">
+        <div class="stat-card green">
+          <div class="stat-icon">🌿</div>
+          <div class="stat-label">Products</div>
+          <div class="stat-value" id="stat-products">—</div>
+        </div>
+        <div class="stat-card amber">
+          <div class="stat-icon">🏭</div>
+          <div class="stat-label">Suppliers</div>
+          <div class="stat-value" id="stat-suppliers">—</div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-icon">🛒</div>
+          <div class="stat-label">Purchases</div>
+          <div class="stat-value" id="stat-purchases">—</div>
+        </div>
+        <div class="stat-card purple">
+          <div class="stat-icon">💰</div>
+          <div class="stat-label">Total Sales</div>
+          <div class="stat-value" id="stat-sales">—</div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-icon">📈</div>
+          <div class="stat-label">Revenue (TZS)</div>
+          <div class="stat-value" id="stat-revenue">—</div>
+        </div>
+        <div class="stat-card red">
+          <div class="stat-icon">⚠️</div>
+          <div class="stat-label">Low Stock Items</div>
+          <div class="stat-value" id="stat-lowstock">—</div>
+        </div>
+      </div>
+
+      <!-- Charts row -->
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-title">📊 Monthly Sales (TZS)</div>
+          <div class="chart-wrap"><canvas id="chart-monthly-sales"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">🥧 Stock Distribution</div>
+          <div class="chart-wrap"><canvas id="chart-stock-dist"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">📦 Purchase Trend</div>
+          <div class="chart-wrap"><canvas id="chart-purchase-trend"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">🏆 Top Selling Products</div>
+          <div class="chart-wrap"><canvas id="chart-top-products"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Low Stock Alert -->
+      <div class="card" id="low-stock-card" style="margin-bottom:20px">
+        <div class="card-header">
+          <span class="card-title">⚠️ Low Stock Alerts</span>
+          <a href="inventory.html" class="btn btn-ghost btn-sm">View All →</a>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Product</th><th>Category</th><th>Current Stock</th><th>Threshold</th><th>Status</th>
+            </tr></thead>
+            <tbody id="low-stock-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Two-col: Recent Sales + Activity -->
+      <div class="two-col">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">💰 Recent Sales</span>
+            <a href="sales.html" class="btn btn-ghost btn-sm">View All →</a>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Receipt</th><th>Date</th><th>Items</th><th>Total</th></tr></thead>
+              <tbody id="recent-sales-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">📋 Activity Feed</span>
+          </div>
+          <div class="card-body">
+            <div class="activity-feed" id="activity-feed">
+              <div class="loading-spinner"><div class="spinner"></div> Loading…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<script src="js/config.js"></script>
+<script src="js/offline-sync.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+<script>
+// Inject layout
+document.getElementById('sidebar-container').innerHTML = AppTemplate.getSidebarHTML();
+document.getElementById('header-container').innerHTML  = AppTemplate.getHeaderHTML('Dashboard', 'Home › Dashboard');
+document.getElementById('offline-banner-container').innerHTML = AppTemplate.getOfflineBanner();
+document.getElementById('install-banner-container').innerHTML = AppTemplate.getInstallBanner();
+
+// Chart instances
+let chartSales, chartStock, chartPurchase, chartTop;
+
+const CHART_DEFAULTS = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: { legend: { labels: { color: '#8b949e', font: { size: 11 } } } }
+};
+
+const CHART_COLORS = {
+  green:  'rgba(74,222,128,0.85)',
+  greenA: 'rgba(74,222,128,0.2)',
+  amber:  'rgba(245,158,11,0.85)',
+  blue:   'rgba(56,189,248,0.85)',
+  purple: 'rgba(167,139,250,0.85)',
+  red:    'rgba(239,68,68,0.85)',
+};
+
+function initCharts(data) {
+  // Monthly sales
+  const mLabels = (data.monthlySales || []).map(r => r.month);
+  const mVals   = (data.monthlySales || []).map(r => r.total);
+  if (chartSales) chartSales.destroy();
+  chartSales = new Chart(document.getElementById('chart-monthly-sales'), {
+    type: 'bar',
+    data: {
+      labels: mLabels,
+      datasets: [{
+        label: 'Sales (TZS)',
+        data: mVals,
+        backgroundColor: CHART_COLORS.green,
+        borderRadius: 4,
+        borderSkipped: false
+      }]
+    },
+    options: { ...CHART_DEFAULTS,
+      scales: {
+        x: { ticks: { color: '#565f6d' }, grid: { color: '#2a3548' } },
+        y: { ticks: { color: '#565f6d' }, grid: { color: '#2a3548' } }
+      }
+    }
+  });
+
+  // Stock distribution (doughnut)
+  const stockCats  = (data.stockDistribution || []).map(r => r.category);
+  const stockVals  = (data.stockDistribution || []).map(r => r.quantity);
+  if (chartStock) chartStock.destroy();
+  chartStock = new Chart(document.getElementById('chart-stock-dist'), {
+    type: 'doughnut',
+    data: {
+      labels: stockCats,
+      datasets: [{
+        data: stockVals,
+        backgroundColor: [CHART_COLORS.green, CHART_COLORS.amber, CHART_COLORS.blue, CHART_COLORS.purple, CHART_COLORS.red],
+        borderColor: '#161b22',
+        borderWidth: 3
+      }]
+    },
+    options: { ...CHART_DEFAULTS,
+      plugins: { ...CHART_DEFAULTS.plugins, legend: { ...CHART_DEFAULTS.plugins.legend, position: 'right' } }
+    }
+  });
+
+  // Purchase trend (line)
+  const ptLabels = (data.purchaseTrend || []).map(r => r.month);
+  const ptVals   = (data.purchaseTrend || []).map(r => r.total);
+  if (chartPurchase) chartPurchase.destroy();
+  chartPurchase = new Chart(document.getElementById('chart-purchase-trend'), {
+    type: 'line',
+    data: {
+      labels: ptLabels,
+      datasets: [{
+        label: 'Purchases (TZS)',
+        data: ptVals,
+        borderColor: CHART_COLORS.blue,
+        backgroundColor: 'rgba(56,189,248,0.1)',
+        fill: true,
+        tension: 0.4,
+        pointBackgroundColor: CHART_COLORS.blue
+      }]
+    },
+    options: { ...CHART_DEFAULTS,
+      scales: {
+        x: { ticks: { color: '#565f6d' }, grid: { color: '#2a3548' } },
+        y: { ticks: { color: '#565f6d' }, grid: { color: '#2a3548' } }
+      }
+    }
+  });
+
+  // Top products (horizontal bar)
+  const tpLabels = (data.topProducts || []).map(r => r.name);
+  const tpVals   = (data.topProducts || []).map(r => r.quantity);
+  if (chartTop) chartTop.destroy();
+  chartTop = new Chart(document.getElementById('chart-top-products'), {
+    type: 'bar',
+    data: {
+      labels: tpLabels,
+      datasets: [{
+        label: 'Units Sold',
+        data: tpVals,
+        backgroundColor: CHART_COLORS.purple,
+        borderRadius: 4
+      }]
+    },
+    options: { ...CHART_DEFAULTS,
+      indexAxis: 'y',
+      scales: {
+        x: { ticks: { color: '#565f6d' }, grid: { color: '#2a3548' } },
+        y: { ticks: { color: '#565f6d' }, grid: { color: '#2a3548' } }
+      }
+    }
+  });
+}
+
+function renderStats(data) {
+  document.getElementById('stat-products').textContent = data.totalProducts ?? '0';
+  document.getElementById('stat-suppliers').textContent = data.totalSuppliers ?? '0';
+  document.getElementById('stat-purchases').textContent = data.totalPurchases ?? '0';
+  document.getElementById('stat-sales').textContent = data.totalSales ?? '0';
+  document.getElementById('stat-revenue').textContent = UI.formatCurrency(data.totalRevenue ?? 0).replace('TZS ','');
+  const ls = data.lowStockCount ?? 0;
+  document.getElementById('stat-lowstock').textContent = ls;
+  const badge = document.getElementById('notif-badge');
+  if (badge) { badge.style.display = ls > 0 ? 'block' : 'none'; }
+}
+
+function renderLowStock(items) {
+  const tbody = document.getElementById('low-stock-tbody');
+  if (!items || items.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state" style="padding:24px"><div class="empty-title" style="color:var(--accent)">✅ All stock levels are healthy</div></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = items.map(p => `
+    <tr>
+      <td class="strong">${p.name}</td>
+      <td><span class="badge badge-muted">${p.category || '—'}</span></td>
+      <td>${p.stockQty}</td>
+      <td>${TEMS_CONFIG.LOW_STOCK_THRESHOLD}</td>
+      <td><span class="badge badge-red">Low Stock</span></td>
+    </tr>
+  `).join('');
+}
+
+function renderRecentSales(sales) {
+  const tbody = document.getElementById('recent-sales-tbody');
+  if (!sales || sales.length === 0) {
+    UI.showTableEmpty('recent-sales-tbody', 'No recent sales');
+    return;
+  }
+  tbody.innerHTML = sales.slice(0, 5).map(s => `
+    <tr>
+      <td class="mono">${s.receiptNo}</td>
+      <td>${UI.formatDate(s.saleDate)}</td>
+      <td>${s.itemCount || 1}</td>
+      <td class="strong">${UI.formatCurrency(s.totalAmount)}</td>
+    </tr>
+  `).join('');
+}
+
+function renderActivity(logs) {
+  const feed = document.getElementById('activity-feed');
+  if (!logs || logs.length === 0) {
+    feed.innerHTML = '<div class="empty-state" style="padding:20px"><div class="empty-title">No recent activity</div></div>';
+    return;
+  }
+  feed.innerHTML = logs.slice(0, 8).map(l => {
+    const colors = { CREATE: '', UPDATE: 'blue', DELETE: 'red', SALE: '', PURCHASE: 'blue' };
+    return `
+      <div class="activity-item">
+        <div class="activity-dot ${colors[l.action] || ''}"></div>
+        <div>
+          <div class="activity-text"><strong>${l.userName || 'System'}</strong> ${l.description || l.action}</div>
+          <div class="activity-time">${UI.formatDate(l.timestamp)}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function loadDashboard() {
+  try {
+    // Try cache first
+    const cached = await OfflineSync.cacheGet('dashboard');
+    if (cached) {
+      renderStats(cached);
+      initCharts(cached);
+      renderLowStock(cached.lowStockItems);
+      renderRecentSales(cached.recentSales);
+      renderActivity(cached.activityFeed);
+    }
+
+    if (navigator.onLine) {
+      const data = await API.getDashboard();
+      await OfflineSync.cacheSet('dashboard', data);
+      renderStats(data);
+      initCharts(data);
+      renderLowStock(data.lowStockItems);
+      renderRecentSales(data.recentSales);
+      renderActivity(data.activityFeed);
+    } else if (!cached) {
+      UI.showToast('warning', 'Offline', 'No cached data available.');
+    }
+  } catch (err) {
+    console.error(err);
+    UI.showToast('error', 'Load Failed', 'Could not load dashboard data.');
+  }
+}
+
+// Init
+if (UI.initPage('dashboard')) {
+  loadDashboard();
+}
+
+// Register service worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('service-worker.js').catch(console.warn);
+}
+</script>
+</body>
+</html>

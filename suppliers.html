@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Suppliers — TEMS</title>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="icon" href="assets/icons/icon-192.png">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebar-container"></div>
+  <div class="main-content">
+    <div id="header-container"></div>
+    <div class="page-content">
+      <div id="offline-banner-container"></div>
+
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Suppliers</h1>
+          <p class="page-subtitle">Manage tobacco suppliers and buying centres</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-primary" onclick="openSupplierModal()">＋ Add Supplier</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Supplier Directory</span>
+          <div class="toolbar-search" style="margin:0">
+            <span>🔍</span>
+            <input type="text" id="search-input" placeholder="Search suppliers…" oninput="filterSuppliers()">
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Name</th><th>Contact Person</th><th>Phone</th>
+              <th>Region</th><th>Total Purchases</th><th>Status</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="suppliers-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="pagination"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="supplier-modal">
+  <div class="modal" style="max-width:680px">
+    <div class="modal-header">
+      <h2 class="modal-title" id="supplier-modal-title">Add Supplier</h2>
+      <button class="modal-close" data-close-modal="supplier-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="supplier-id">
+      <div class="form-grid">
+        <div class="form-group full">
+          <label class="form-label">Company / Supplier Name *</label>
+          <input class="form-input" type="text" id="supplier-name" placeholder="e.g. Songea Tobacco Growers Cooperative">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Contact Person</label>
+          <input class="form-input" type="text" id="supplier-contact" placeholder="Full name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Phone</label>
+          <input class="form-input" type="tel" id="supplier-phone" placeholder="+255 …">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input class="form-input" type="email" id="supplier-email" placeholder="email@example.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Region / District</label>
+          <input class="form-input" type="text" id="supplier-region" placeholder="e.g. Ruvuma, Tabora">
+        </div>
+        <div class="form-group full">
+          <label class="form-label">Address</label>
+          <textarea class="form-input" id="supplier-address" placeholder="Physical address…"></textarea>
+        </div>
+        <div class="form-group full">
+          <label class="form-label">Notes</label>
+          <textarea class="form-input" id="supplier-notes" placeholder="Optional notes…"></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-close-modal="supplier-modal">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSupplier()">Save Supplier</button>
+    </div>
+  </div>
+</div>
+
+<!-- View Supplier Modal -->
+<div class="modal-overlay" id="view-supplier-modal">
+  <div class="modal" style="max-width:700px">
+    <div class="modal-header">
+      <h2 class="modal-title" id="view-supplier-title">Supplier Details</h2>
+      <button class="modal-close" data-close-modal="view-supplier-modal">✕</button>
+    </div>
+    <div class="modal-body" id="view-supplier-body"></div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+<script src="js/config.js"></script>
+<script src="js/offline-sync.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+<script>
+document.getElementById('sidebar-container').innerHTML = AppTemplate.getSidebarHTML();
+document.getElementById('header-container').innerHTML = AppTemplate.getHeaderHTML('Suppliers', 'Operations › Suppliers');
+document.getElementById('offline-banner-container').innerHTML = AppTemplate.getOfflineBanner();
+
+let allSuppliers = [];
+let currentPage = 1;
+const PER_PAGE = TEMS_CONFIG.ROWS_PER_PAGE;
+
+async function loadPageData() {
+  UI.showTableLoading('suppliers-tbody');
+  try {
+    const cached = await OfflineSync.cacheGet('suppliers');
+    if (cached) { allSuppliers = cached; filterSuppliers(); }
+    if (navigator.onLine) {
+      const data = await API.getSuppliers();
+      allSuppliers = data.suppliers || [];
+      await OfflineSync.cacheSet('suppliers', allSuppliers);
+      filterSuppliers();
+    } else if (!cached) {
+      UI.showTableEmpty('suppliers-tbody', 'No suppliers available offline');
+    }
+  } catch (err) {
+    UI.showToast('error', 'Error', 'Could not load suppliers.');
+    UI.showTableEmpty('suppliers-tbody');
+  }
+}
+
+function filterSuppliers() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  const filtered = allSuppliers.filter(s =>
+    !q || s.name?.toLowerCase().includes(q) ||
+    s.contactPerson?.toLowerCase().includes(q) ||
+    s.region?.toLowerCase().includes(q)
+  );
+  currentPage = 1;
+  renderSuppliers(filtered);
+}
+
+function renderSuppliers(suppliers) {
+  const tbody = document.getElementById('suppliers-tbody');
+  if (!suppliers.length) { UI.showTableEmpty('suppliers-tbody'); return; }
+  const start = (currentPage - 1) * PER_PAGE;
+  const page  = suppliers.slice(start, start + PER_PAGE);
+  tbody.innerHTML = page.map(s => `
+    <tr>
+      <td class="strong">${s.name}</td>
+      <td>${s.contactPerson || '—'}</td>
+      <td>${s.phone || '—'}</td>
+      <td><span class="badge badge-muted">${s.region || '—'}</span></td>
+      <td>${UI.formatCurrency(s.totalPurchases || 0)}</td>
+      <td><span class="badge ${s.active !== false ? 'badge-green' : 'badge-muted'}">${s.active !== false ? 'Active' : 'Inactive'}</span></td>
+      <td>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" onclick='viewSupplier(${JSON.stringify(s).replace(/'/g,"&#39;")})'>👁️</button>
+          <button class="btn btn-secondary btn-sm" onclick='openSupplierModal(${JSON.stringify(s).replace(/'/g,"&#39;")})'>✏️</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteSupplier('${s.id}','${s.name}')">🗑️</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+  UI.buildPagination('pagination', suppliers.length, currentPage, PER_PAGE, p => { currentPage = p; renderSuppliers(suppliers); });
+}
+
+function openSupplierModal(s = null) {
+  document.getElementById('supplier-id').value = s?.id || '';
+  document.getElementById('supplier-name').value = s?.name || '';
+  document.getElementById('supplier-contact').value = s?.contactPerson || '';
+  document.getElementById('supplier-phone').value = s?.phone || '';
+  document.getElementById('supplier-email').value = s?.email || '';
+  document.getElementById('supplier-region').value = s?.region || '';
+  document.getElementById('supplier-address').value = s?.address || '';
+  document.getElementById('supplier-notes').value = s?.notes || '';
+  document.getElementById('supplier-modal-title').textContent = s ? 'Edit Supplier' : 'Add Supplier';
+  UI.openModal('supplier-modal');
+}
+
+async function saveSupplier() {
+  const name = document.getElementById('supplier-name').value.trim();
+  if (!name) { UI.showToast('warning', 'Validation', 'Supplier name is required.'); return; }
+  const id = document.getElementById('supplier-id').value;
+  const payload = {
+    id: id || undefined, name,
+    contactPerson: document.getElementById('supplier-contact').value.trim(),
+    phone: document.getElementById('supplier-phone').value.trim(),
+    email: document.getElementById('supplier-email').value.trim(),
+    region: document.getElementById('supplier-region').value.trim(),
+    address: document.getElementById('supplier-address').value.trim(),
+    notes: document.getElementById('supplier-notes').value.trim(),
+    active: true
+  };
+  try {
+    await API.callWithFallback(id ? 'updateSupplier' : 'createSupplier', payload, `${id ? 'Update' : 'Create'} supplier: ${name}`);
+    UI.closeModal('supplier-modal');
+    UI.showToast('success', id ? 'Supplier Updated' : 'Supplier Created', name);
+    loadPageData();
+  } catch (err) { UI.showToast('error', 'Save Failed', err.message); }
+}
+
+function viewSupplier(s) {
+  document.getElementById('view-supplier-title').textContent = s.name;
+  document.getElementById('view-supplier-body').innerHTML = `
+    <div class="form-grid">
+      <div class="form-group"><label class="form-label">Contact Person</label><div style="color:var(--text-primary)">${s.contactPerson || '—'}</div></div>
+      <div class="form-group"><label class="form-label">Phone</label><div style="color:var(--text-primary)">${s.phone || '—'}</div></div>
+      <div class="form-group"><label class="form-label">Email</label><div style="color:var(--text-primary)">${s.email || '—'}</div></div>
+      <div class="form-group"><label class="form-label">Region</label><div style="color:var(--text-primary)">${s.region || '—'}</div></div>
+      <div class="form-group full"><label class="form-label">Address</label><div style="color:var(--text-primary)">${s.address || '—'}</div></div>
+      <div class="form-group full"><label class="form-label">Notes</label><div style="color:var(--text-secondary);font-size:0.85rem">${s.notes || '—'}</div></div>
+      <div class="form-group"><label class="form-label">Total Purchases</label><div style="color:var(--accent);font-weight:700">${UI.formatCurrency(s.totalPurchases || 0)}</div></div>
+      <div class="form-group"><label class="form-label">Status</label><span class="badge ${s.active !== false ? 'badge-green' : 'badge-muted'}">${s.active !== false ? 'Active' : 'Inactive'}</span></div>
+    </div>
+  `;
+  UI.openModal('view-supplier-modal');
+}
+
+function deleteSupplier(id, name) {
+  UI.confirm(`Delete supplier "${name}"?`, async () => {
+    try {
+      await API.callWithFallback('deleteSupplier', { id }, `Delete supplier: ${name}`);
+      UI.showToast('success', 'Deleted', `${name} removed.`);
+      loadPageData();
+    } catch (err) { UI.showToast('error', 'Delete Failed', err.message); }
+  }, { title: 'Delete Supplier', danger: true });
+}
+
+if (UI.initPage('suppliers')) loadPageData();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js').catch(console.warn);
+</script>
+</body>
+</html>
