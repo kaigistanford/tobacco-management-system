@@ -1,14 +1,10 @@
 // =============================================
-// TEMS — Service Worker
-// Cache-first strategy for static assets,
-// network-first for API calls
+// TEMS Service Worker — Cache v1.0.3
+// Updated cache name forces fresh download
 // =============================================
 
-const CACHE_NAME    = 'tems-v1.0.0';
-const API_CACHE     = 'tems-api-v1';
-const CDN_CACHE     = 'tems-cdn-v1';
+const CACHE_NAME = 'tems-v1.0.3';  // <-- bumped version clears old cache
 
-// Static assets to cache on install
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -32,146 +28,91 @@ const STATIC_ASSETS = [
   './js/offline-sync.js',
   './manifest.json',
   './assets/icons/icon-192.png',
-  './assets/icons/icon-512.png',
+  './assets/icons/icon-512.png'
 ];
 
-// CDN resources to cache
-const CDN_ASSETS = [
-  'https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap',
-  'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'
-];
-
-// ---- Install: cache static assets ----
-self.addEventListener('install', (event) => {
+// Install — cache all static files
+self.addEventListener('install', event => {
   event.waitUntil(
-    Promise.all([
-      caches.open(CACHE_NAME).then(cache => {
-        return cache.addAll(STATIC_ASSETS).catch(err => {
-          console.warn('[SW] Some static assets failed to cache:', err);
-        });
-      }),
-      caches.open(CDN_CACHE).then(cache => {
-        return Promise.allSettled(CDN_ASSETS.map(url => cache.add(url)));
-      })
-    ]).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(STATIC_ASSETS).catch(err => {
+        console.warn('[SW] Some assets failed to cache:', err);
+      }))
+      .then(() => self.skipWaiting())  // activate immediately
   );
 });
 
-// ---- Activate: clean old caches ----
-self.addEventListener('activate', (event) => {
-  const validCaches = [CACHE_NAME, API_CACHE, CDN_CACHE];
+// Activate — delete ALL old caches
+self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(
         keys
-          .filter(key => !validCaches.includes(key))
-          .map(key => caches.delete(key))
+          .filter(key => key !== CACHE_NAME)
+          .map(key => {
+            console.log('[SW] Deleting old cache:', key);
+            return caches.delete(key);
+          })
       )
-    ).then(() => self.clients.claim())
+    ).then(() => self.clients.claim())  // take control of all tabs immediately
   );
 });
 
-// ---- Fetch: routing strategy ----
-self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  const url = new URL(request.url);
+// Fetch — network first, cache fallback
+self.addEventListener('fetch', event => {
+  const url = new URL(event.request.url);
 
-  // Skip non-GET and Chrome extensions
-  if (request.method !== 'GET') return;
-  if (url.protocol === 'chrome-extension:') return;
-
-  // Google Apps Script API calls — network-only (POST handled by app, GET here)
-  if (url.host === 'script.google.com') {
-    event.respondWith(
-      fetch(request).catch(() =>
-        new Response(JSON.stringify({ success: false, offline: true, message: 'Offline — request queued.' }),
-          { headers: { 'Content-Type': 'application/json' } }
-        )
-      )
-    );
+  // Never cache Apps Script API calls
+  if (url.host === 'script.google.com' || url.host === 'script.googleusercontent.com') {
+    event.respondWith(fetch(event.request));
     return;
   }
 
-  // Google Fonts — cache-first
-  if (url.host === 'fonts.googleapis.com' || url.host === 'fonts.gstatic.com') {
-    event.respondWith(
-      caches.open(CDN_CACHE).then(cache =>
-        cache.match(request).then(cached =>
-          cached || fetch(request).then(res => {
-            cache.put(request, res.clone()); return res;
-          })
-        )
-      )
-    );
-    return;
-  }
+  // Skip non-GET
+  if (event.request.method !== 'GET') return;
 
-  // CDN assets (Chart.js, SheetJS) — cache-first
-  if (url.host === 'cdn.jsdelivr.net' || url.host === 'cdnjs.cloudflare.com') {
-    event.respondWith(
-      caches.open(CDN_CACHE).then(cache =>
-        cache.match(request).then(cached =>
-          cached || fetch(request).then(res => {
-            if (res.ok) cache.put(request, res.clone());
-            return res;
-          }).catch(() => cached || new Response('', { status: 503 }))
-        )
-      )
-    );
-    return;
-  }
-
-  // App HTML/CSS/JS — cache-first with network fallback
+  // Network first for app files so updates are picked up immediately
   if (url.origin === self.location.origin) {
     event.respondWith(
-      caches.open(CACHE_NAME).then(cache =>
-        cache.match(request).then(cached => {
-          const networkFetch = fetch(request).then(res => {
-            if (res.ok) cache.put(request, res.clone());
-            return res;
-          }).catch(() => null);
-          return cached || networkFetch || new Response(
-            '<h1>TEMS — Offline</h1><p>Please connect to the internet to load this page.</p>',
-            { headers: { 'Content-Type': 'text/html' }, status: 503 }
-          );
+      fetch(event.request)
+        .then(res => {
+          // Update cache with fresh response
+          if (res.ok) {
+            const clone = res.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          }
+          return res;
         })
-      )
+        .catch(() =>
+          // Offline fallback — serve from cache
+          caches.match(event.request).then(cached =>
+            cached || new Response(
+              '<h1>TEMS — Offline</h1><p>Please connect to the internet.</p>',
+              { headers: { 'Content-Type': 'text/html' }, status: 503 }
+            )
+          )
+        )
     );
     return;
   }
 
-  // Default: network with cache fallback
+  // CDN assets — cache first
   event.respondWith(
-    fetch(request).catch(() =>
-      caches.match(request)
+    caches.match(event.request).then(cached =>
+      cached || fetch(event.request).then(res => {
+        if (res.ok) {
+          const clone = res.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        }
+        return res;
+      })
     )
   );
 });
 
-// ---- Background sync (if supported) ----
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'tems-sync') {
-    event.waitUntil(syncQueuedRequests());
+// Listen for message to skip waiting (sent by app after update detected)
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
   }
-});
-
-async function syncQueuedRequests() {
-  // The main sync logic is in offline-sync.js in the page context.
-  // Notify all clients to trigger sync.
-  const clients = await self.clients.matchAll();
-  clients.forEach(client => client.postMessage({ type: 'SYNC_REQUESTED' }));
-}
-
-// ---- Push notifications placeholder ----
-self.addEventListener('push', (event) => {
-  const data = event.data ? event.data.json() : { title: 'TEMS', body: 'New notification' };
-  event.waitUntil(
-    self.registration.showNotification(data.title || 'TEMS', {
-      body: data.body,
-      icon: './assets/icons/icon-192.png',
-      badge: './assets/icons/icon-72.png',
-      tag: 'tems-notification'
-    })
-  );
 });
