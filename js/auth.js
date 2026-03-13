@@ -1,24 +1,19 @@
 // =============================================
 // TEMS — Auth Module
-// Handles login, logout, session, role checks
 // =============================================
 
 const Auth = (() => {
 
-  const TOKEN_KEY = 'tems_auth_token';
-  const USER_KEY  = 'tems_user_data';
+  const TOKEN_KEY = () => TEMS_CONFIG.TOKEN_KEY;
+  const USER_KEY  = () => TEMS_CONFIG.USER_KEY;
 
-  // ---- Get current session ----
   function getToken() {
-    return localStorage.getItem(TOKEN_KEY);
+    return localStorage.getItem(TOKEN_KEY());
   }
 
   function getUser() {
-    try {
-      return JSON.parse(localStorage.getItem(USER_KEY));
-    } catch (e) {
-      return null;
-    }
+    try { return JSON.parse(localStorage.getItem(USER_KEY())); }
+    catch (e) { return null; }
   }
 
   function isLoggedIn() {
@@ -32,9 +27,8 @@ const Auth = (() => {
     return perms.includes(page);
   }
 
-  // ---- Login ----
+  // Login using pure GET — no POST, no JSON headers, no CORS
   async function login(username, password) {
-    // Build GET URL directly — no POST, no JSON headers
     const url = TEMS_CONFIG.APPS_SCRIPT_URL
       + '?action=login'
       + '&username=' + encodeURIComponent(username)
@@ -44,23 +38,21 @@ const Auth = (() => {
     const data = await res.json();
 
     if (data.success) {
-      localStorage.setItem(TOKEN_KEY, data.token);
-      localStorage.setItem(USER_KEY,  JSON.stringify(data.user));
+      localStorage.setItem(TOKEN_KEY(), data.token);
+      localStorage.setItem(USER_KEY(),  JSON.stringify(data.user));
     }
-
     return data;
   }
 
-  // ---- Logout ----
   function logout() {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
+    localStorage.removeItem(TOKEN_KEY());
+    localStorage.removeItem(USER_KEY());
     window.location.href = 'login.html';
   }
 
-  // ---- Protect pages ----
-  // Call this at the top of every page except login.html
-  function requireLogin(pageId) {
+  // guardPage — called by every page to check login and permissions
+  // also aliased as requireLogin for compatibility
+  function guardPage(pageId) {
     if (!isLoggedIn()) {
       window.location.href = 'login.html';
       return false;
@@ -72,5 +64,18 @@ const Auth = (() => {
     return true;
   }
 
-  return { login, logout, getToken, getUser, isLoggedIn, hasPermission, requireLogin };
+  // Alias so both names work
+  const requireLogin = guardPage;
+
+  // initPage — called at bottom of every page
+  function initPage(pageId) {
+    return guardPage(pageId);
+  }
+
+  return {
+    login, logout,
+    getToken, getUser,
+    isLoggedIn, hasPermission,
+    guardPage, requireLogin, initPage
+  };
 })();
